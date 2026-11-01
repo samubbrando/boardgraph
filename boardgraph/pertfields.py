@@ -1,4 +1,4 @@
-"""Campos de estimativa (O/M/P) e Prazo: criação e semeadura.
+"""Campos de estimativa (Otimista, Mais provável, Pessimista) e Prazo.
 
 O PERT precisa de três estimativas por tarefa e elas não existem no board.
 Este módulo cria os campos e semeia valores iniciais a partir do prazo
@@ -20,8 +20,16 @@ from dataclasses import dataclass
 from .client import GraphQLClient
 from .fields import field_map, item_key, to_date
 
-FIELD_SPECS = (("O", "NUMBER"), ("M", "NUMBER"), ("P", "NUMBER"), ("Prazo", "DATE"))
-SEED_FACTORS = {"O": 0.7, "M": 1.0, "P": 1.6}
+FIELD_SPECS = (
+    ("Otimista (dias)", "NUMBER"),
+    ("Mais provável (dias)", "NUMBER"),
+    ("Pessimista (dias)", "NUMBER"),
+    ("Prazo", "DATE"),
+)
+FIELD_OTIMISTA = "Otimista (dias)"
+FIELD_PROVAVEL = "Mais provável (dias)"
+FIELD_PESSIMISTA = "Pessimista (dias)"
+SEED_FACTORS = {FIELD_OTIMISTA: 0.7, FIELD_PROVAVEL: 1.0, FIELD_PESSIMISTA: 1.6}
 SEED_FIELDS = tuple(SEED_FACTORS)
 
 CREATE_FIELD = """
@@ -70,7 +78,7 @@ def plan_seed(payload: dict) -> tuple[list[SeedRow], list[str], list[str]]:
     """(linhas a semear, sem semente, já preenchidos). Não muta nada.
 
     Só entram issues com Start e Target válidos. PRs e drafts não têm esses
-    campos. Item com qualquer um de O/M/P preenchido é respeitado e pulado.
+    campos. Item com qualquer uma das três estimativas preenchida é pulado.
     """
     rows: list[SeedRow] = []
     skipped: list[str] = []
@@ -116,11 +124,13 @@ def render_dryrun(
     lines.append("")
     lines.append(f"semeadura (M=Target−Start+1, O=0.7M, P=1.6M) — {len(rows)} itens:")
     width = max((len(row.key) for row in rows), default=20)
-    lines.append(f"  {'key':<{width}} {'start':<11} {'end':<11} {'M':>4} {'O':>5} {'P':>5}")
+    lines.append(
+        f"  {'key':<{width}} {'start':<11} {'end':<11} {'dias':>4} {'otimista':>9} {'pessimista':>10}"
+    )
     for row in rows:
         lines.append(
             f"  {row.key:<{width}} {row.start:<11} {row.end:<11} "
-            f"{row.days:>4} {row.values['O']:>5} {row.values['P']:>5}"
+            f"{row.days:>4} {row.values[FIELD_OTIMISTA]:>9} {row.values[FIELD_PESSIMISTA]:>10}"
         )
     if filled:
         lines.append(f"\njá preenchidos, não sobrescreve: {len(filled)}")
@@ -150,7 +160,7 @@ def create_missing(
 def apply_seed(
     client: GraphQLClient, project_id: str, rows: list[SeedRow], fields: dict[str, dict]
 ) -> int:
-    """Semeia O/M/P em cada linha; devolve a quantidade de mutações."""
+    """Semeia as três estimativas em cada linha; devolve a quantidade de mutações."""
     count = 0
     for row in rows:
         for name in SEED_FIELDS:

@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     fields = sub.add_parser(
         "fields",
-        help="cria e semeia os campos O/M/P + Prazo (dry-run por padrão)",
+        help="cria e semeia os campos de estimativa + Prazo (dry-run por padrão)",
     )
     fields.add_argument("--out", type=Path, default=Path("out"), help="diretório de saída")
     fields.add_argument("--input", type=Path, help="payload alternativo (padrão: out/raw/latest.json)")
