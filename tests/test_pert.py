@@ -406,27 +406,44 @@ def test_render_markdown_mostra_tabelas_e_simbolos():
     assert "1.50" in md                   # fator de realidade
 
 
+def _issue(number, values, closed=None, blocked=()):
+    content = {
+        "__typename": "Issue",
+        "number": number,
+        "title": f"t{number}",
+        "state": "OPEN",
+        "repository": {"nameWithOwner": "org/repo"},
+        "blockedBy": {
+            "nodes": [{"number": b, "repository": {"nameWithOwner": "org/repo"}} for b in blocked]
+        },
+    }
+    if closed:
+        content["closedAt"] = closed
+    return {
+        "id": f"i{number}",
+        "content": content,
+        "fieldValues": {"nodes": [
+            {"issueFieldValue": {"value": value, "field": {"name": name}}}
+            for name, value in values
+        ]},
+    }
+
+
+def _write_payload(tmp_path, items):
+    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": items}
+    src = tmp_path / "latest.json"
+    src.write_text(json.dumps(payload), encoding="utf-8")
+    return src
+
+
 def test_cli_schedule_grava_pert_md_e_json(tmp_path):
     from boardgraph.cli import main
 
-    def value(name, v):
-        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
-
-    item = {
-        "id": "i1",
-        "content": {
-            "__typename": "Issue", "number": 1, "title": "t1", "state": "OPEN",
-            "repository": {"nameWithOwner": "org/repo"},
-        },
-        "fieldValues": {"nodes": [
-            value("Start date", "2026-01-01"), value("Target date", "2026-01-05"),
-            value("Otimista (dias)", 1), value("Mais provável (dias)", 3),
-            value("Pessimista (dias)", 5),
-        ]},
-    }
-    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item]}
-    src = tmp_path / "latest.json"
-    src.write_text(json.dumps(payload), encoding="utf-8")
+    item = _issue(1, [
+        ("Start date", "2026-01-01"), ("Target date", "2026-01-05"),
+        ("Otimista (dias)", 1), ("Mais provável (dias)", 3), ("Pessimista (dias)", 5),
+    ])
+    src = _write_payload(tmp_path, [item])
 
     code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "2026-01-31"])
 
@@ -442,8 +459,7 @@ def test_cli_schedule_grava_pert_md_e_json(tmp_path):
 def test_cli_schedule_rejeita_deadline_invalido(tmp_path):
     from boardgraph.cli import main
 
-    src = tmp_path / "latest.json"
-    src.write_text(json.dumps({"project": {"id": "P"}, "fields": [], "items": []}), encoding="utf-8")
+    src = _write_payload(tmp_path, [])
 
     code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "31/01/2026"])
 
@@ -466,27 +482,12 @@ def test_conjunto_critico_nao_depende_do_prazo():
 
 
 def test_cli_render_style_critical_gera_artefatos(tmp_path):
-    import json
-
     from boardgraph.cli import main
 
-    def value(name, v):
-        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
-
-    def item(number, blocked=()):
-        return {
-            "id": f"i{number}",
-            "content": {
-                "__typename": "Issue", "number": number, "title": f"t{number}", "state": "OPEN",
-                "repository": {"nameWithOwner": "org/repo"},
-                "blockedBy": {"nodes": [{"number": b, "repository": {"nameWithOwner": "org/repo"}} for b in blocked]},
-            },
-            "fieldValues": {"nodes": [value("Start date", "2026-01-01"), value("Target date", "2026-01-05")]},
-        }
-
-    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item(1), item(2, blocked=[1])]}
-    src = tmp_path / "latest.json"
-    src.write_text(json.dumps(payload), encoding="utf-8")
+    src = _write_payload(tmp_path, [
+        _issue(1, [("Start date", "2026-01-01"), ("Target date", "2026-01-05")]),
+        _issue(2, [("Start date", "2026-01-01"), ("Target date", "2026-01-05")], blocked=[1]),
+    ])
 
     code = main(["render", "--input", str(src), "--out", str(tmp_path), "--style", "critical", "--format", "mmd"])
 
@@ -509,7 +510,7 @@ def test_divergencias_separam_atraso_e_folga_no_plano():
     assert "## Divergências entre plano e cálculo" in md
     assert "−3d" in md   # termina depois do planejado
     assert "+7d" in md   # folga no próprio plano
-    assert "ficam de fora" in md
+    assert "≥ 2 dias" in md
 
 
 def test_cenario_realidade_escala_as_estimativas():
@@ -527,28 +528,20 @@ def test_cenario_realidade_escala_as_estimativas():
 def test_cenario_aparece_no_md_e_no_json(tmp_path):
     from boardgraph.cli import main
 
-    def value(name, v):
-        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
-
-    item = {
-        "id": "i1",
-        "content": {
-            "__typename": "Issue", "number": 1, "title": "t1", "state": "OPEN",
-            "repository": {"nameWithOwner": "org/repo"},
-        },
-        "fieldValues": {"nodes": [
-            value("Start date", "2026-01-01"), value("Target date", "2026-01-05"),
-            value("Otimista (dias)", 1), value("Mais provável (dias)", 3),
-            value("Pessimista (dias)", 5),
-        ]},
-    }
-    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item]}
-    src = tmp_path / "latest.json"
-    src.write_text(json.dumps(payload), encoding="utf-8")
+    estimada = _issue(1, [
+        ("Start date", "2026-01-01"), ("Target date", "2026-01-05"),
+        ("Otimista (dias)", 1), ("Mais provável (dias)", 3), ("Pessimista (dias)", 5),
+    ])
+    # concluída: planejado 5d, real 7d → fator de realidade 1.4
+    concluida = _issue(2, [
+        ("Start date", "2026-01-01"), ("Target date", "2026-01-05"),
+    ], closed="2026-01-07")
+    src = _write_payload(tmp_path, [estimada, concluida])
 
     code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "2026-02-28"])
 
     assert code == 0
+    md = (tmp_path / "pert.md").read_text(encoding="utf-8")
     data = json.loads((tmp_path / "pert.json").read_text(encoding="utf-8"))
-    assert "scenario" in data
-    assert data["scenario"]["factor"] is None   # sem tarefas concluídas, sem cenário
+    assert "cenário com fator de realidade 1.40" in md
+    assert data["scenario"]["factor"] == 1.4

@@ -349,10 +349,12 @@ fontes de prazo, por nível:
 
 `probability: null` = sem prazo; `0` ou `1` = degenerada (σ = 0). Aproximações
 clássicas assumidas — citáveis na defesa: dominância do caminho mais longo (a
-variância do `max` entre ramos paralelos é ignorada), o head do milestone é a
-tarefa de fim esperado mais tardio (não o `max` dos membros), normal com massa
-em duração negativa desprezada, e componentes independentes (falso se
-compartilham pessoas — contenção de recursos está fora do cálculo).
+variância do `max` entre ramos paralelos é ignorada), P(milestone) = produto
+por componente com a tarefa de fim esperado mais tardio como representante de
+cada componente (membros correlatos no mesmo componente não são
+multiplicados), normal com massa em duração negativa desprezada, e
+componentes independentes (falso se compartilham pessoas — contenção de
+recursos está fora do cálculo).
 
 Datas de exibição arredondam para fora (`floor`/`ceil`); com TE fracionário,
 tarefas encadeadas podem compartilhar o dia de fronteira. `es/ef/ls/lf` são os
@@ -507,13 +509,16 @@ carrega estimativas (`optimistic/likely/pessimistic`), `te`/`sigma`/`sigma_path`
 offsets (`es/ef/ls/lf`, dias), datas ISO (`start/finish/late_start/late_finish`),
 `planned_*`, `duration` (= `ceil(te)`, exibição) e `duration_source` ∈
 {`estimativa`, `janela`, `zero`}. Unidades: dias de calendário inclusivos.
-`calibration` = `{reality_factor, sample[], skipped[], warnings[]}`.
+`calibration` = `{reality_factor, sample[], skipped[], warnings[]}`. `scenario`
+= `{factor, finish}` (cronograma com estimativas × fator; `null` sem tarefas
+concluídas — O/M/P escalam, durações de janela não).
 
-Números atuais (board de referência, `parents`): 45 itens, 41 nós, 3
-absorvidos, 13 milestones, 34 arestas de dependência, 1 fantasma
-(`backend#12`) com 2 arestas, 19 isolados, 0 ciclos. `children` = 44 nós e 37
-arestas (34 dependência + 3 hierarquia), 22 isolados. `all` = 45 nós, 23
-isolados. Zero milestones misturam times.
+Números medidos em 2026-11-01 (board de referência, `parents`): 45 itens,
+42 nós, 3 absorvidos, 13 milestones, 37 arestas de dependência, 1 fantasma
+(`backend#12`), 16 isolados, 0 ciclos. `children` e `all` = 45 nós, 40 arestas
+(37 dependência + 3 hierarquia), 19 isolados. Zero milestones misturam times.
+O board é vivo: medições antigas (2026-10-29: 41 nós, 34 arestas) ficaram para
+trás — regenerar com `fetch` + `schedule` antes de citar números.
 
 ## 8. Estado da suíte de testes
 

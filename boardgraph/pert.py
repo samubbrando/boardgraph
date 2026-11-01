@@ -213,9 +213,14 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
     }
 
 
-def reality_scenario(board: dict, graph: dict, factor: float | None, deadline=None) -> dict | None:
-    """Cronograma com as estimativas multiplicadas pelo fator de realidade."""
-    if not factor:
+def reality_scenario(
+    board: dict, graph: dict, factor: float | None, deadline: str | date | None = None
+) -> dict | None:
+    """Cronograma com as estimativas multiplicadas pelo fator de realidade.
+
+    Só O/M/P escalam; tarefa sem estimativa mantém a duração de janela.
+    """
+    if factor is None:
         return None
     scaled = dict(board)
     scaled["nodes"] = [
@@ -228,10 +233,6 @@ def reality_scenario(board: dict, graph: dict, factor: float | None, deadline=No
         for n in board.get("nodes") or []
     ]
     return schedule(scaled, graph, deadline=deadline)
-
-
-def _scale(value: float | None, factor: float) -> float | None:
-    return value * factor if value is not None else None
 
 
 def calibrate(board: dict) -> dict:
@@ -290,10 +291,13 @@ def render_markdown(
             f"- P(projeto ≤ {project['deadline']}) = **{_prob(project['probability'])}**"
         )
     if scenario:
-        delta = _days(scenario["finish"], result["finish"])
+        delta = ""
+        if scenario["finish"] and result["finish"]:
+            days = (to_date(scenario["finish"]) - to_date(result["finish"])).days
+            delta = f" ({days:+d} dias)".replace("-", "−")
         lines.append(
             f"- cenário com fator de realidade {calibration['reality_factor']:.2f}: "
-            f"fim ajustado **{scenario['finish']}** ({delta:+d} dias)"
+            f"fim ajustado **{scenario['finish']}**{delta}"
         )
     lines.append("")
 
@@ -377,12 +381,17 @@ def render_markdown(
                 f"| {_signed(delivery)} |"
             )
         lines.append("")
+        note = (
+            f" Só entram linhas de ≥ 2 dias; {minor} tarefa(s) com desvio de 1 dia "
+            "(provável arredondamento do TE) ficam de fora."
+            if minor
+            else " Só entram linhas de ≥ 2 dias."
+        )
         lines.append(
             "atraso no início = o quanto o cálculo começa depois do planejado "
             "(dependência que o plano não respeita). entrega vs plano = "
-            "**+** folga no próprio plano, **−** termina depois do planejado. "
-            f"Só entram linhas de ≥ 2 dias; {minor} tarefa(s) com desvio de 1 dia "
-            "(arredondamento do TE) ficam de fora."
+            "**+** folga no próprio plano, **−** termina depois do planejado."
+            + note
         )
         lines.append("")
 
@@ -436,12 +445,6 @@ def _signed(value: int | None) -> str:
     return f"{value:+d}d".replace("-", "−") if value is not None else "—"
 
 
-def _days(later: str | None, earlier: str | None) -> int:
-    if not later or not earlier:
-        return 0
-    return (to_date(later) - to_date(earlier)).days
-
-
 def _meta_line(board: dict, result: dict) -> str:
     parts = [f"gerado em {board.get('generatedAt')}", f"recorte: {board.get('detail') or 'parents'}"]
     if board.get("teams"):
@@ -453,6 +456,10 @@ def _meta_line(board: dict, result: dict) -> str:
 
 def _short(key: str) -> str:
     return key.rsplit("/", 1)[-1]
+
+
+def _scale(value: float | None, factor: float) -> float | None:
+    return value * factor if value is not None else None
 
 
 def _fmt(value: float | None, none: str = "—") -> str:
@@ -588,6 +595,17 @@ def _milestone_probabilities(tasks: list[dict]) -> list[dict]:
         head = max(members, key=lambda t: (t["finish"] or "", t["key"]))
         due = head["milestone"].get("due_on")
         deadline = due or max((m["deadline"] for m in members if m["deadline"]), default=None)
+        probability = None
+        if deadline:
+            # componentes independentes: produto; dentro de um componente, a
+            # dominância do caminho mais longo define a tarefa representativa
+            by_component: dict[int, list[dict]] = defaultdict(list)
+            for member in members:
+                by_component[member["component"]].append(member)
+            probability = math.prod(
+                _probability(max(group, key=lambda t: (t["finish"] or "", t["key"])), deadline)
+                for group in by_component.values()
+            )
         out.append({
             "repo": repo,
             "number": number,
@@ -596,7 +614,7 @@ def _milestone_probabilities(tasks: list[dict]) -> list[dict]:
             "source": "due_on" if due else ("prazo" if deadline else None),
             "expected_finish": head["finish"],
             "sigma_path": head["sigma_path"],
-            "probability": _probability(head, deadline) if deadline else None,
+            "probability": probability,
             "tasks": len(members),
         })
     return out

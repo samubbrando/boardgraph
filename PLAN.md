@@ -334,14 +334,16 @@ campo de board: é `--deadline`/config.
 
 ### Resultado medido (2026-11-01, board de referência)
 
-- Fim calculado 2026-11-11; 22 críticas em 41 nós; 19 componentes.
+- Fim calculado 2026-11-11; 22 críticas em 42 nós; 19 componentes
+  (medição de 2026-11-01; o board é vivo).
 - A história dos 16 dias virou: `frontend#4..9` começam +6d depois do planejado
   e entregam −7d (dependência real); `backend#18/19` têm +10d de folga no
   próprio plano. Ou seja, ~5–7 dias de conflito de dependência, resto é buffer.
 - Calibração: fator de realidade **1.67** (n=19, 26 ignoradas).
 - Cenário com o fator: fim ajustado **2026-12-07** (+26 dias) — passa o prazo
   global de 2026-12-01 em 6 dias, mesmo com P(projeto) = 1.000 no cenário atual.
-- Probabilidades com `dueOn`: `Milestone 0 - Backend` 0.369; `Mllestone 1` e
+- Probabilidades com `dueOn` (produto por componente): `Milestone 0 -
+  Infraestrutura` 0.942, `Milestone 0 - Backend` 0.136; `Mllestone 1` e
   `Milestone 2` com P = 0.000 (prazos já estourados no plano).
 
 ### Limitações declaradas
@@ -352,6 +354,8 @@ campo de board: é `--deadline`/config.
   inflado por espera, não por trabalho.
 - Duração do passe é o TE; sem O/M/P cai para `M`, depois para a janela
   (`Target − Start + 1`), e `sigma` fica 0 (probabilidade degenerada).
+- O cenário do fator de realidade escala só O/M/P; tarefa sem estimativa
+  mantém a duração de janela.
 
 ### Fora de escopo
 
