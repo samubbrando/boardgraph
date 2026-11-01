@@ -16,7 +16,14 @@ python3 -m boardgraph fetch  --owner ORG --project 1
 python3 -m boardgraph probe
 python3 -m boardgraph model
 python3 -m boardgraph render --detail parents --format pdf
+python3 -m boardgraph render --style critical --format pdf   # caminho crítico em vermelho
+python3 -m boardgraph schedule --deadline AAAA-MM-DD         # PERT/CPM: pert.md + pert.json
+python3 -m boardgraph fields            # dry-run dos campos de estimativa
 ```
+
+`fields --execute` é o único comando que escreve no GitHub: cria os campos
+`Otimista (dias)`/`Mais provável (dias)`/`Pessimista (dias)`/`Prazo` e semeia
+estimativas iniciais. Exige escopo de escrita: `gh auth refresh -s project`.
 
 Filtros: `--detail parents|children|all` e `--team` (repetível).
 Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|dark`.
@@ -29,5 +36,7 @@ Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|
 ## Testes
 
 ```bash
-python3 -m unittest discover -s tests -t .
+uv run --group dev python3 -m pytest tests/ -q
 ```
+
+Ou sem `uv`: `python3 -m pytest tests/ -q` (pytest instalado).

@@ -142,3 +142,44 @@ class MermaidLintTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class CriticalStyleTests(unittest.TestCase):
+    def _setup(self):
+        nodes = [_node("o/backend#1"), _node("o/frontend#2", blocked=["o/backend#1"])]
+        board = _board(nodes)
+        return board, build_graph(board)
+
+    def test_mermaid_marks_critical_nodes_and_edges(self):
+        board, graph = self._setup()
+        text = render_mermaid(board, graph, critical={"o/backend#1", "o/frontend#2"})
+
+        self.assertIn("classDef crit", text)
+        self.assertIn("class n_backend_1 crit;", text)
+        self.assertIn("n_backend_1 ==> n_frontend_2", text)
+
+    def test_mermaid_without_critical_is_unchanged(self):
+        board, graph = self._setup()
+        text = render_mermaid(board, graph)
+
+        self.assertNotIn("classDef crit", text)
+        self.assertIn("n_backend_1 --> n_frontend_2", text)
+
+    def test_dot_marks_critical_nodes_and_edges(self):
+        board, graph = self._setup()
+        text = render_dot(board, graph, critical={"o/backend#1", "o/frontend#2"})
+
+        self.assertIn("penwidth=2.6", text)
+        self.assertIn('color="#dc2626", penwidth=2', text)
+
+    def test_dot_without_critical_is_unchanged(self):
+        board, graph = self._setup()
+        text = render_dot(board, graph)
+
+        self.assertNotIn("dc2626", text)

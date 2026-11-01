@@ -25,10 +25,12 @@ class GraphQLError(RuntimeError):
 class GraphQLClient:
     def __init__(self, transport: str = "auto", token: str | None = None):
         self.token = resolve_token(token)
-        if transport == "auto":
-            transport = "gh" if self.token is None or _gh_available() else "http"
+        auto = transport == "auto"
+        if auto:
+            transport = "http" if self.token else "gh"
         if transport == "gh" and not _gh_available():
-            raise AuthError("transporte `gh` pedido, mas o binário `gh` não está no PATH")
+            msg = "sem token e sem `gh` no PATH para autenticar" if auto else "transporte `gh` pedido, mas o binário `gh` não está no PATH"
+            raise AuthError(msg)
         if transport == "http" and not self.token:
             raise AuthError("transporte `http` precisa de GITHUB_TOKEN/GH_TOKEN")
         self.transport = transport

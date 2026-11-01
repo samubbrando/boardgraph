@@ -13,10 +13,18 @@ calculados em `finalize`, depois de todos os filtros.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Iterable
 
-from .fields import field_map
+from .fields import (
+    FIELD_OTIMISTA,
+    FIELD_PESSIMISTA,
+    FIELD_PRAZO,
+    FIELD_PROVAVEL,
+    field_map,
+    to_date,
+    to_iso,
+)
 from .team import UNASSIGNED, resolve_teams
 
 
@@ -104,11 +112,11 @@ def _normalize(item: dict) -> dict:
     fields = field_map(item)
     ms = content.get("milestone") or {}
 
-    start = _date(fields.get("Start date"))
-    end = _date(fields.get("Target date"))
+    start = to_date(fields.get("Start date"))
+    end = to_date(fields.get("Target date"))
     end_source = "issue_field" if end else None
     if not end:
-        closed = _date(content.get("closedAt"))
+        closed = to_date(content.get("closedAt"))
         if closed:
             end, end_source = closed, "closed_at"
 
@@ -126,6 +134,10 @@ def _normalize(item: dict) -> dict:
         "status": fields.get("Status"),
         "team": fields.get("Team"),
         "duration": fields.get("Duration"),
+        "optimistic": _number(fields.get(FIELD_OTIMISTA)),
+        "likely": _number(fields.get(FIELD_PROVAVEL)),
+        "pessimistic": _number(fields.get(FIELD_PESSIMISTA)),
+        "deadline": to_iso(to_date(fields.get(FIELD_PRAZO))),
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
         "start_source": "issue_field" if start else None,
@@ -134,17 +146,21 @@ def _normalize(item: dict) -> dict:
             "repo": repo,
             "number": ms.get("number"),
             "title": ms.get("title"),
-            "due_on": _iso(_date(ms.get("dueOn"))),
+            "due_on": to_iso(to_date(ms.get("dueOn"))),
         }
         if ms.get("number")
         else None,
         "blocked_by": _keys(content.get("blockedBy")),
         "parent": parent_key,
         "children": [],
-        "created_at": _iso(_date(content.get("createdAt"))),
-        "closed_at": _iso(_date(content.get("closedAt"))),
+        "created_at": to_iso(to_date(content.get("createdAt"))),
+        "closed_at": to_iso(to_date(content.get("closedAt"))),
         "absorbed_by": None,
     }
+
+
+def _number(value) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _type(typename: str | None) -> str:
@@ -257,12 +273,12 @@ def _milestone_windows(nodes: list[dict]) -> list[dict]:
         delta = None
         status = "sem_due"
         if due and end:
-            delta = (date.fromisoformat(end) - date.fromisoformat(due)).days
+            delta = (to_date(end) - to_date(due)).days
             status = "estourado" if delta > 0 else "ok"
 
         span = None
         if start and end:
-            span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+            span = (to_date(end) - to_date(start)).days + 1
 
         out.append(
             {
@@ -385,22 +401,3 @@ def render_terminal(board: dict) -> str:
 def _clip(text: str | None, size: int) -> str:
     text = text or "—"
     return text if len(text) <= size else text[: size - 1] + "…"
-
-
-# ---------------------------------------------------------------------- datas
-
-
-def _date(value) -> date | None:
-    if not value:
-        return None
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    text = str(value)[:10]
-    try:
-        return date.fromisoformat(text)
-    except ValueError:
-        return None
-
-
-def _iso(value: date | None) -> str | None:
-    return value.isoformat() if value else None

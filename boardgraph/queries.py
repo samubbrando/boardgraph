@@ -71,6 +71,23 @@ FIELD_VALUES = """
 """
 
 
+CREATE_PROJECT_FIELD = """
+mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
+  createProjectV2Field(input: {projectId: $projectId, name: $name, dataType: $dataType}) {
+    projectV2Field { ... on ProjectV2FieldCommon { id name dataType } }
+  }
+}
+"""
+
+SET_ITEM_FIELD_VALUE = """
+mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+  updateProjectV2ItemFieldValue(
+    input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value}
+  ) { projectV2Item { id } }
+}
+"""
+
+
 def board_query(include_deps: bool = True, include_body: bool = False) -> str:
     deps = ISSUE_DEPENDENCIES if include_deps else ""
     body = "body" if include_body else ""

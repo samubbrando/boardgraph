@@ -64,6 +64,9 @@ Board alvo: `Projeto-ES-2026-2-G1/projects/1` ("Plannings").
 - [x] **Fase 6 — svg**: `mmdc` → SVG/PDF; emissor Graphviz. ✔ 2026-10-30
 - [x] **Fase 7 — filtros e render**: `--detail`, `--team`, `--group-by`;
       filtro devolve `Board`; remoção de `--view`/`TeamView`. ✔ 2026-10-31
+- [ ] **Fase 8 — PERT/CPM**: campos Otimista/Mais provável/Pessimista + Prazo, cálculo de caminho crítico,
+      probabilidade e calibração pelo realizado. Entrega: `out/pert.md`,
+      `out/pert.json`, `render --style critical`. Branch: `feat/pert-cpm`.
 
 ## Heurística de colapso (sub-issues)
 
@@ -276,3 +279,90 @@ fallback e nunca é descartado.
   ou usa um script.
 - `edges-<recorte>.json` é derivado do `Board` filtrado, com contagens,
   fantasmas, arestas, isolados e ciclos.
+
+## Fase 8 — PERT/CPM (artefato de entrega)
+
+Planejada em 2026-10-31, branch `feat/pert-cpm`. PERT probabilístico é
+exigência da disciplina — não é opcional.
+
+### Decisões travadas
+
+| | Escolha |
+|---|---|
+| Unidade das estimativas | dias |
+| Campos | `ProjectV2Field` NUMBER (Otimista, Mais provável, Pessimista) + DATE (Prazo) |
+| Semente inicial | script (`O=0.7M`, `M=Target−Start+1`, `P=1.6M`), depois revisão humana |
+| Calibração | mediana de `(closedAt−start)/(Target−start)` nas tarefas Done |
+| Deadline | campo `Prazo` por tarefa + data global (`--deadline`) |
+| Consumidor | professor e grupo |
+| Capacidade real | 13 pessoas, 3 frentes simultâneas (fora do cálculo) |
+
+### Campos novos no board
+
+```
+Otimista (dias)          NUMBER   estimativa otimista
+Mais provável (dias)     NUMBER   estimativa mais provável
+Pessimista (dias)        NUMBER   estimativa pessimista
+Prazo                    DATE     compromisso de entrega da tarefa
+```
+
+Nomes por extenso e com unidade: o board é lido pelo grupo e pelo professor,
+e `O`/`M`/`P` só fazem sentido para quem já conhece PERT. `Duration` (horas)
+mede *esforço* e fica fora da conta e fora da tabela do PERT — é o único
+sinal de esforço que a equipe preencheu (41/45), guardado como conferência
+cruzada, não como duração de calendário. A data global do projeto não é
+campo de board: é `--deadline`/config.
+
+### Subfases
+
+1. **Campos e semeadura** ✔ 2026-11-01 — `boardgraph/pertfields.py` + subcomando
+   `boardgraph fields`; dry-run lista campos e sementes sem mutar; execução
+   cria os 4 campos e semeia as tarefas (~135 mutações; exige escopo de
+   escrita de project no `gh`).
+2. **CPM** ✔ 2026-11-01 — `boardgraph/pert.py`: passe direto (ES/EF),
+   regressivo (LS/LF), folga = LS − ES, crítico = menor folga do componente
+   (caminho mais longo — com prazo folgado ninguém tem folga zero), por componente.
+   Testes com rede pequena conferida à mão.
+3. **PERT + calibração** ✔ 2026-11-01 — `TE=(O+4M+P)/6`, `σ=(P−O)/6`, `σ_caminho=√Σσ²`,
+   `P(≤D)=Φ(...)` via `math.erf`; probabilidade por tarefa, milestone e
+   projeto; fator de realidade das Done como cenário.
+4. **Saídas** ✔ 2026-11-01 — `boardgraph schedule` → `out/pert.md` + `out/pert.json`;
+   `render --style critical` nos dois emissores.
+5. **Validação** ✔ 2026-11-01 — divergências plano × cálculo no `pert.md`,
+   cenário com o fator de realidade, suíte verde (102 testes), documentação.
+   Merge em `main` pendente de aval.
+
+### Resultado medido (2026-11-01, board de referência)
+
+- Fim calculado 2026-11-11; 22 críticas em 42 nós; 19 componentes
+  (medição de 2026-11-01; o board é vivo).
+- A história dos 16 dias virou: `frontend#4..9` começam +6d depois do planejado
+  e entregam −7d (dependência real); `backend#18/19` têm +10d de folga no
+  próprio plano. Ou seja, ~5–7 dias de conflito de dependência, resto é buffer.
+- Calibração: fator de realidade **1.67** (n=19, 26 ignoradas).
+- Cenário com o fator: fim ajustado **2026-12-07** (+26 dias) — passa o prazo
+  global de 2026-12-01 em 6 dias, mesmo com P(projeto) = 1.000 no cenário atual.
+- Probabilidades com `dueOn` (produto por componente): `Milestone 0 -
+  Infraestrutura` 0.942, `Milestone 0 - Backend` 0.136; `Mllestone 1` e
+  `Milestone 2` com P = 0.000 (prazos já estourados no plano).
+
+### Limitações declaradas
+
+- CPM ignora contenção de recursos: 13 pessoas/3 frentes não entram na conta.
+- Nós isolados têm `slack=None`; cada componente tem o seu caminho crítico.
+- `closedAt − start` inclui ociosidade → o fator de realidade pode estar
+  inflado por espera, não por trabalho.
+- Duração do passe é o TE; sem O/M/P cai para `M`, depois para a janela
+  (`Target − Start + 1`), e `sigma` fica 0 (probabilidade degenerada).
+- O cenário do fator de realidade escala só O/M/P; tarefa sem estimativa
+  mantém a duração de janela.
+
+### Fora de escopo
+
+Monte Carlo, nivelamento de recursos, issue fields, múltiplos deadlines.
+
+### Regra do fluxo (branch `feat/pert-cpm`)
+
+Cada subfase termina com: entregáveis visíveis → revisão com `@deslop` no
+diff contra `main` → correções aplicadas → feedback do usuário antes da
+próxima subfase.

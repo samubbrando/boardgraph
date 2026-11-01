@@ -48,6 +48,27 @@ def _board(items, detail="parents", teams=None):
     return finalize(board)
 
 
+class EstimateTests(unittest.TestCase):
+    def test_pert_fields_are_normalized(self):
+        item = _item(1, "2026-10-05", "2026-10-07")
+        item["fieldValues"]["nodes"] += [
+            {"issueFieldValue": {"value": value, "field": {"name": name}}}
+            for name, value in (
+                ("Otimista (dias)", 2.1),
+                ("Mais provável (dias)", 3.0),
+                ("Pessimista (dias)", 4.8),
+                ("Prazo", "2026-10-08"),
+            )
+        ]
+
+        node = _board([item])["nodes"][0]
+
+        self.assertEqual(node["optimistic"], 2.1)
+        self.assertEqual(node["likely"], 3.0)
+        self.assertEqual(node["pessimistic"], 4.8)
+        self.assertEqual(node["deadline"], "2026-10-08")
+
+
 class CollapseTests(unittest.TestCase):
     def test_child_is_absorbed_and_window_is_union(self):
         board = _board(

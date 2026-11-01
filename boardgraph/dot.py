@@ -6,11 +6,16 @@ time. `Status` continua sendo apenas cor de nó.
 
 from __future__ import annotations
 
-import re
-
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
-
-TITLE_LIMIT = 34
+from .viz import (
+    CRIT_COLOR,
+    TITLE_LIMIT,
+    group_id,
+    group_label,
+    group_order,
+    node_group,
+    node_ids,
+)
 
 THEMES = {
     "light": {
@@ -40,26 +45,31 @@ THEMES = {
 STATUS_KEY = {"Todo": "todo", "In progress": "doing", "In Progress": "doing", "Done": "done"}
 
 
-def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str = "light") -> str:
+def render_dot(
+    board: dict,
+    graph: dict,
+    group_by: str = "milestone",
+    theme: str = "light",
+    critical: set[str] | None = None,
+) -> str:
+    critical = critical or set()
     t = THEMES[theme]
     teams_map = resolve_teams(board) if group_by == "team" else {}
-    ids = {n["key"]: _nid(n["key"]) for n in graph["nodes"]}
-    for ghost in graph["ghosts"]:
-        ids[ghost["key"]] = _nid(ghost["key"])
+    ids = node_ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
 
     out = [_header(board, group_by), "digraph board {", _graph_attrs(t)]
 
-    order = _group_order(board, group_by)
+    order = group_order(board, group_by)
     groups: dict[tuple, list[dict]] = {}
     for node in graph["nodes"]:
-        groups.setdefault(_node_group(node, group_by, teams_map), []).append(node)
+        groups.setdefault(node_group(node, group_by, teams_map), []).append(node)
 
     for group, nodes in sorted(groups.items(), key=lambda kv: (order.get(kv[0], 10**6), str(kv[0]))):
-        out.append(f"  subgraph cluster_{_sid(group)} {{")
-        out.append(f'    label="{_esc(_group_label(group, nodes))}";')
+        out.append(f"  subgraph cluster_{group_id(group)} {{")
+        out.append(f'    label="{_esc(group_label(group, nodes))}";')
         out.append(f'    labeljust="l"; style="rounded,dashed"; color="{t["cluster_border"]}"; fontcolor="{t["cluster_font"]}"; fontsize=11;')
         for node in sorted(nodes, key=lambda n: n["key"]):
-            out.append(f"    {ids[node['key']]} [{_attrs(node, t)}];")
+            out.append(f"    {ids[node['key']]} [{_attrs(node, t, node['key'] in critical)}];")
         out.append("  }")
 
     if graph["ghosts"]:
@@ -78,7 +88,10 @@ def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str
         src, dst = ids.get(edge["from"]), ids.get(edge["to"])
         if not src or not dst:
             continue
-        style = 'style="dashed"' if edge["kind"] == "hierarchy" else f'color="{t["edge"]}"'
+        if edge["from"] in critical and edge["to"] in critical:
+            style = f'color="{CRIT_COLOR}", penwidth=2'
+        else:
+            style = 'style="dashed"' if edge["kind"] == "hierarchy" else f'color="{t["edge"]}"'
         out.append(f"  {src} -> {dst} [{style}, arrowsize=0.7];")
 
     out.append("}")
@@ -103,13 +116,16 @@ def _graph_attrs(t: dict) -> str:
     )
 
 
-def _attrs(node: dict, t: dict) -> str:
+def _attrs(node: dict, t: dict, critical: bool = False) -> str:
     key = STATUS_KEY.get(node.get("status") or "", "todo")
     fill, border, font = t[key]
     style = '"rounded,filled' + (",dashed" if key == "todo" else "") + '"'
+    penwidth = ", penwidth=2.6" if critical else ""
+    if critical:
+        border = CRIT_COLOR
     return (
         f'label="{_esc(_node_label(node))}", fillcolor="{fill}", color="{border}", '
-        f'fontcolor="{font}", style={style}{_url(node)}'
+        f'fontcolor="{font}", style={style}{penwidth}{_url(node)}'
     )
 
 
@@ -139,52 +155,6 @@ def _ghost_label(ghost: dict) -> str:
 def _url(node: dict) -> str:
     url = node.get("url")
     return f', URL="{url}", target="_blank"' if url else ""
-
-
-def _node_group(node: dict, group_by: str, teams_map: dict[str, str | None]) -> tuple:
-    if group_by == "team":
-        return ("team", teams_map.get(node["key"]) or UNASSIGNED)
-    ms = node.get("milestone")
-    if not ms or not ms.get("number"):
-        return ("sem_milestone",)
-    return ("milestone", ms["repo"], ms["number"])
-
-
-def _group_order(board: dict, group_by: str) -> dict[tuple, int]:
-    if group_by == "team":
-        return {("team", team): i for i, team in enumerate(board.get("teams") or [])}
-    return {
-        ("milestone", m["repo"], m["number"]): i
-        for i, m in enumerate(board.get("milestones") or [])
-    }
-
-
-def _group_label(group: tuple, nodes: list[dict]) -> str:
-    if group[0] == "sem_milestone":
-        return "sem milestone"
-    if group[0] == "team":
-        return f"{group[1]} · {len(nodes)}"
-    ms = nodes[0]["milestone"]
-    return f"{ms.get('title') or group[2]} · {len(nodes)}"
-
-
-def _sid(value) -> str:
-    if value[0] == "sem_milestone":
-        return "sem_milestone"
-    if value[0] == "team":
-        return "t_" + (_slug(value[1]) or "sem_time")
-    return f"m_{_slug(value[1].split('/')[-1])}_{value[2]}"
-
-
-def _nid(key: str) -> str:
-    if "#" not in key:
-        return f"n_{_slug(key)}"
-    repo, _, number = key.rpartition("#")
-    return f"n_{_slug(repo.split('/')[-1])}_{number}"
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^0-9a-zA-Z]+", "_", str(text)).strip("_") or "x"
 
 
 def _esc(text: str) -> str:
