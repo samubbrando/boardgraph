@@ -144,7 +144,8 @@ número cai fora na normalização), inclusive o que não vira nó:
 - `milestone` é `null` quando a issue não tem milestone.
 - `optimistic`/`likely`/`pessimistic` vêm de `Otimista (dias)`/`Mais provável
   (dias)`/`Pessimista (dias)` (NUMBER); `deadline` vem de `Prazo` (DATE). São
-  insumos do PERT (Fase 8) e não entram no cálculo do CPM de dependências.
+  insumos do PERT: o passe do cronograma usa `te = (O+4M+P)/6` e `sigma` vem
+  de `(P−O)/6`; `deadline` é alvo de comparação, nunca restrição.
 - `duration` é esforço declarado em horas; informativo, fora de todo cálculo.
 - `type` traduz `__typename` (`Issue`, `PullRequest`, `DraftIssue`).
 
@@ -227,7 +228,7 @@ Regra de camadas: **módulo puro não importa I/O; só o `cli` compõe I/O**.
 | `boardgraph/render.py` | Emissor Mermaid. `render_mermaid` agrupa por `group_by` (`milestone` ou `team`), desenha fantasmas, arestas sólidas/tracejadas, classes por `Status` e `click`. | `Board`/`graph` + `group_by` → texto `.mmd` |
 | `boardgraph/dot.py` | Emissor Graphviz. Temas `light`/`dark`, clusters por `group_by`, cores por `Status`, `URL=` para abrir a issue. | `Board`/`graph` + `group_by` → DOT |
 | `boardgraph/pertfields.py` | Criação e semeadura dos campos de estimativa (`Otimista`/`Mais provável`/`Pessimista`/`Prazo`). Dry-run por padrão; nunca sobrescreve valor humano; `Prazo` não recebe semente. Documentos GraphQL vivem em `queries.py`. | payload + client → campos criados / valores semeados |
-| `boardgraph/pert.py` | CPM puro por componente: ES/EF/LS/LF, folga, crítico (= menor folga) e prazo opcional. `duration` é exibição; `te`/`sigma` chegam na Fase 3. `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma |
+| `boardgraph/pert.py` | PERT/CPM puro por componente: passe com `te` (fallback: mais provável → janela), ES/EF/LS/LF, folga, crítico (= menor folga), `sigma_path` pela variância do caminho mais longo e probabilidades por tarefa/milestone/projeto (normal, componentes independentes). `calibrate` mede o fator de realidade (mediana de real/planejado nas `Done`). `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma + probabilidades |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
 | `tests/` | 71 testes offline, rodados com pytest. | — |

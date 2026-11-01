@@ -1,8 +1,13 @@
-"""CPM: caminho crítico por componente de dependência.
+"""PERT/CPM: cronograma por componente de dependência.
 
 `schedule` é puro: recebe o Board já filtrado e o grafo, devolve cada tarefa
-com ES/EF/LS/LF, folga e marcação de crítica. A unidade é dia de calendário
+com ES/EF/LS/LF, folga, crítica e probabilidade. A unidade é dia de calendário
 inclusive, igual ao resto do pipeline; `Duration` (horas de esforço) não entra.
+
+A duração do passe é o **TE do PERT** — `(O + 4M + P)/6` quando as três
+estimativas existem; sem elas, cai na mais provável, depois na janela
+planejada, e `sigma` fica 0 (probabilidade degenerada). Datas de exibição:
+`start = âncora + floor(es)`, `finish = âncora + ceil(ef)`.
 
 Arestas de hierarquia e dependências de fora do board (fantasmas) não
 restringem o cronograma. Duração 0 ocupa o dia da própria âncora (marco), em
@@ -11,24 +16,28 @@ vez de consumir dia algum — mantém start ≤ finish sem inverter datas. Sem
 interna não tem folga finita (`slack=None`) e não é crítico.
 
 Contratos:
-- `duration` (int, dias) é a duração do passe; estimativas e `te`/`sigma`,
-  quando existirem, são estatística e não substituem a duração.
+- `duration` (int) é `te` arredondado para cima — a exibição em dias inteiros.
 - `milestone` é o dict do nó ou `None` — a chave do projeto é `(repo, number)`,
   nunca o título.
 - `team` passa pela herança (`resolve_teams`), igual a `graph`/`render`.
 - Crítico = menor folga do componente (caminho mais longo), não folga zero:
   com prazo folgado todos têm folga positiva e ainda há caminho crítico.
-- `Prazo` por tarefa não entra no cálculo do CPM.
+- `Prazo` por tarefa não entra no cálculo do CPM; é alvo de comparação.
+- Variância segue o caminho mais longo até a tarefa (`sigma_path`); a
+  probabilidade assume normal e componentes independentes entre si.
 """
 
 from __future__ import annotations
 
 import math
+import statistics
 from collections import defaultdict
 from datetime import date, timedelta
 
 from .fields import to_date, to_iso
 from .team import UNASSIGNED, resolve_teams
+
+EPS = 1e-9
 
 
 def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> dict:
@@ -42,22 +51,33 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
 
     durations: dict[str, int] = {}
     sources: dict[str, str] = {}
+    tes: dict[str, float] = {}
+    sigmas: dict[str, float] = {}
     zero: list[str] = []
     window: list[str] = []
+    no_estimate: list[str] = []
     for node in nodes:
         if node["key"] in cycled:
             continue
-        days, source = _duration(node)
+        days, te, sigma, source = _estimate(node)
         durations[node["key"]] = days
         sources[node["key"]] = source
+        tes[node["key"]] = te
+        sigmas[node["key"]] = sigma
         if source == "zero":
             zero.append(node["key"])
         elif source == "janela":
             window.append(node["key"])
+        if sigma == 0 and node.get("deadline"):
+            no_estimate.append(node["key"])
     if zero:
         warnings.append(f"{len(zero)} tarefa(s) sem janela completa nem estimativa: {', '.join(sorted(zero))}")
     if window:
         warnings.append(f"{len(window)} tarefa(s) usando a janela como duração: {', '.join(sorted(window))}")
+    if no_estimate:
+        warnings.append(
+            f"{len(no_estimate)} tarefa(s) com Prazo e sem O/M/P: probabilidade degenerada"
+        )
 
     edges = [
         e for e in graph.get("edges") or []
@@ -91,22 +111,30 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
     for index, comp in enumerate(_components(list(durations), edges)):
         anchor = _min_start([by_key[k] for k in comp]) or fallback
         order = _topo(comp, pred, succ)
-        es, ef = _forward(order, pred, durations)
+        es, ef, var = _forward(order, pred, tes, sigmas)
         limit = _limit(anchor, max(ef.values()), deadline_date)
-        ls, lf = _backward(order, succ, durations, limit)
+        ls, lf = _backward(order, succ, tes, limit)
 
         slacks = {
             k: None if not pred[k] and not succ[k] else ls[k] - es[k]
             for k in comp
         }
         finite = [v for v in slacks.values() if v is not None]
-        floor = min(finite, default=0)
-        critical = {k for k, v in slacks.items() if v is not None and v == floor}
+        floor = min(finite, default=0.0)
+        critical = {k for k, v in slacks.items() if v is not None and abs(v - floor) < EPS}
         path = _critical_path(comp, pred, succ, ef, critical)
+        terminals = [k for k in comp if not succ[k]] or comp
+        head = max(terminals, key=lambda k: (ef[k], k))
+
+        sigma_head = math.sqrt(var[head])
+        comp_proba = None
+        if deadline_date and anchor is not None:
+            comp_proba = _z_probability((deadline_date - anchor).days - ef[head], sigma_head)
 
         for key in comp:
             node = by_key[key]
-            tasks.append({
+            sigma_path = math.sqrt(var[key])
+            task = {
                 "key": key,
                 "title": node.get("title"),
                 "team": teams.get(key) or UNASSIGNED,
@@ -119,22 +147,36 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
                 "anchor": to_iso(anchor),
                 "duration": durations[key],
                 "duration_source": sources[key],
+                "te": tes[key],
+                "sigma": sigmas[key],
+                "sigma_path": sigma_path,
+                "es": es[key],
+                "ef": ef[key],
+                "ls": ls[key],
+                "lf": lf[key],
                 "planned_start": node.get("start"),
                 "planned_end": node.get("end"),
-                "start": _add(anchor, es[key]),
-                "finish": _add(anchor, ef[key]),
-                "late_start": _add(anchor, ls[key]),
-                "late_finish": _add(anchor, lf[key]),
+                "start": _date_at(anchor, es[key]),
+                "finish": _date_at(anchor, ef[key], end=True),
+                "late_start": _date_at(anchor, ls[key]),
+                "late_finish": _date_at(anchor, lf[key], end=True),
                 "slack": slacks[key],
                 "critical": key in critical,
-            })
+                "probability": None,
+            }
+            if task["deadline"]:
+                task["probability"] = _probability(task, task["deadline"])
+            tasks.append(task)
 
         components.append({
             "index": index,
             "anchor": to_iso(anchor),
-            "finish": _add(anchor, max(ef.values())),
+            "finish": _date_at(anchor, max(ef.values()), end=True),
             "task_count": len(comp),
             "critical_path": path,
+            "expected_finish": _date_at(anchor, ef[head], end=True),
+            "sigma_path": sigma_head,
+            "probability": comp_proba,
         })
 
     tasks.sort(key=lambda t: t["key"])
@@ -148,20 +190,66 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
         "tasks": tasks,
         "critical": sorted(t["key"] for t in tasks if t["critical"]),
         "components": components,
+        "probabilities": {
+            "project": _project_probability(components, deadline_date),
+            "milestones": _milestone_probabilities(tasks),
+        },
         "warnings": warnings,
     }
 
 
-def _duration(node: dict) -> tuple[int, str]:
-    """Duração em dias; estimativa primeiro, janela planejada como reserva."""
-    likely = node.get("likely")
-    if likely is not None:
-        return max(0, math.ceil(likely)), "estimativa"
+def calibrate(board: dict) -> dict:
+    """Fator de realidade: mediana de real/planejado nas tarefas concluídas."""
+    samples: list[dict] = []
+    skipped: list[str] = []
+
+    for item in board.get("items") or []:
+        key = item.get("key")
+        start = to_date(item.get("start"))
+        closed = to_date(item.get("closed_at"))
+        planned_end = to_date(item.get("end")) if item.get("end_source") == "issue_field" else None
+        if not (start and closed and planned_end):
+            skipped.append(key)
+            continue
+        planned = (planned_end - start).days + 1
+        real = (closed - start).days + 1
+        if planned < 1 or real < 1:
+            skipped.append(key)
+            continue
+        samples.append({
+            "key": key,
+            "planned_days": planned,
+            "real_days": real,
+            "ratio": round(real / planned, 3),
+        })
+
+    samples.sort(key=lambda s: s["key"])
+    ratios = [s["ratio"] for s in samples]
+    return {
+        "fator_realidade": statistics.median(ratios) if ratios else None,
+        "amostra": samples,
+        "ignoradas": sorted(k for k in skipped if k),
+        "warnings": [] if samples else ["nenhuma tarefa concluída com Start/Target/closedAt"],
+    }
+
+
+# ------------------------------------------------------------------- cálculo
+
+
+def _estimate(node: dict) -> tuple[int, float, float, str]:
+    """(duração exibida, te, sigma, fonte). TE é a duração do passe."""
+    o, m, p = node.get("optimistic"), node.get("likely"), node.get("pessimistic")
+    if o is not None and m is not None and p is not None:
+        te = (o + 4 * m + p) / 6
+        return max(0, math.ceil(te)), te, max(0.0, (p - o) / 6), "estimativa"
+    if m is not None:
+        return max(0, math.ceil(m)), float(m), 0.0, "estimativa"
 
     start, end = to_date(node.get("start")), to_date(node.get("end"))
     if start and end and end >= start:
-        return (end - start).days + 1, "janela"
-    return 0, "zero"
+        te = float((end - start).days + 1)
+        return int(te), te, 0.0, "janela"
+    return 0, 0.0, 0.0, "zero"
 
 
 def _components(keys: list[str], edges: list[dict]) -> list[list[str]]:
@@ -202,26 +290,28 @@ def _topo(comp: list[str], pred: dict, succ: dict) -> list[str]:
     return order
 
 
-def _forward(order: list[str], pred: dict, durations: dict[str, int]) -> tuple[dict, dict]:
-    es, ef = {}, {}
+def _forward(order: list[str], pred: dict, tes: dict[str, float], sigmas: dict[str, float]):
+    es, ef, var = {}, {}, {}
     for key in order:
-        es[key] = max((ef[p] + 1 for p in pred[key]), default=0)
-        ef[key] = es[key] + durations[key] - 1 if durations[key] > 0 else es[key]
-    return es, ef
+        best = max(pred[key], key=lambda p: (ef[p], p), default=None)
+        es[key] = ef[best] + 1 if best is not None else 0.0
+        ef[key] = es[key] + tes[key] - 1 if tes[key] > 0 else es[key]
+        var[key] = (var[best] if best is not None else 0.0) + sigmas[key] ** 2
+    return es, ef, var
 
 
-def _backward(order: list[str], succ: dict, durations: dict[str, int], limit: int) -> tuple[dict, dict]:
+def _backward(order: list[str], succ: dict, tes: dict[str, float], limit: float):
     ls, lf = {}, {}
     for key in reversed(order):
         lf[key] = min((ls[s] - 1 for s in succ[key]), default=limit)
-        ls[key] = lf[key] - durations[key] + 1 if durations[key] > 0 else lf[key]
+        ls[key] = lf[key] - tes[key] + 1 if tes[key] > 0 else lf[key]
     return ls, lf
 
 
-def _limit(anchor: date | None, comp_end: int, deadline: date | None) -> int:
+def _limit(anchor: date | None, comp_end: float, deadline: date | None) -> float:
     if deadline is None or anchor is None:
         return comp_end
-    return (deadline - anchor).days
+    return float((deadline - anchor).days)
 
 
 def _critical_path(comp: list[str], pred: dict, succ: dict, ef: dict, critical: set[str]) -> list[str]:
@@ -237,13 +327,64 @@ def _critical_path(comp: list[str], pred: dict, succ: dict, ef: dict, critical: 
     return list(reversed(path))
 
 
+def _probability(task: dict, deadline: object) -> float:
+    d = to_date(deadline)
+    margin = (d - to_date(task["anchor"])).days - task["ef"]
+    return _z_probability(margin, task["sigma_path"])
+
+
+def _z_probability(margin: float, sigma_path: float) -> float:
+    """P(fim ≤ prazo) com normal; degenerada (0 ou 1) quando sigma_path = 0."""
+    if sigma_path > 0:
+        return 0.5 * (1 + math.erf(margin / sigma_path / math.sqrt(2)))
+    return 1.0 if margin >= 0 else 0.0
+
+
+def _milestone_probabilities(tasks: list[dict]) -> list[dict]:
+    groups: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for task in tasks:
+        ms = task["milestone"]
+        if ms and ms.get("number"):
+            groups[(ms["repo"], ms["number"])].append(task)
+
+    out = []
+    for (repo, number), members in sorted(groups.items()):
+        head = max(members, key=lambda t: (t["ef"], t["key"]))
+        due = head["milestone"].get("due_on")
+        deadline = due or max((m["deadline"] for m in members if m["deadline"]), default=None)
+        out.append({
+            "repo": repo,
+            "number": number,
+            "title": head["milestone"].get("title"),
+            "deadline": deadline,
+            "source": "due_on" if due else ("prazo" if deadline else None),
+            "expected_finish": head["finish"],
+            "sigma_path": head["sigma_path"],
+            "probability": _probability(head, deadline) if deadline else None,
+            "tasks": len(members),
+        })
+    return out
+
+
+def _project_probability(components: list[dict], deadline: date | None) -> dict | None:
+    """Componentes são independentes: P(projeto ≤ prazo) é o produto."""
+    if deadline is None or not components:
+        return None
+    return {
+        "deadline": deadline.isoformat(),
+        "expected_finish": max(c["expected_finish"] for c in components),
+        "probability": math.prod(c["probability"] for c in components),
+    }
+
+
+def _date_at(anchor: date | None, offset: float, end: bool = False) -> str | None:
+    if anchor is None:
+        return None
+    shift = math.ceil(offset) if end else math.floor(offset)
+    return (anchor + timedelta(days=shift)).isoformat()
+
+
 def _min_start(nodes: list[dict]) -> date | None:
     dates = [to_date(n.get("start")) for n in nodes]
     dates = [d for d in dates if d is not None]
     return min(dates) if dates else None
-
-
-def _add(anchor: date | None, offset: int) -> str | None:
-    return (anchor + timedelta(days=offset)).isoformat() if anchor else None
-
-

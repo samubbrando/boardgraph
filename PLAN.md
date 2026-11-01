@@ -323,7 +323,7 @@ campo de board: é `--deadline`/config.
    regressivo (LS/LF), folga = LS − ES, crítico = menor folga do componente
    (caminho mais longo — com prazo folgado ninguém tem folga zero), por componente.
    Testes com rede pequena conferida à mão.
-3. **PERT + calibração** — `TE=(O+4M+P)/6`, `σ=(P−O)/6`, `σ_caminho=√Σσ²`,
+3. **PERT + calibração** ✔ 2026-11-01 — `TE=(O+4M+P)/6`, `σ=(P−O)/6`, `σ_caminho=√Σσ²`,
    `P(≤D)=Φ(...)` via `math.erf`; probabilidade por tarefa, milestone e
    projeto; fator de realidade das Done como cenário.
 4. **Saídas** — `boardgraph schedule` → `out/pert.md` + `out/pert.json`;
