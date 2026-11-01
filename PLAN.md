@@ -64,6 +64,9 @@ Board alvo: `Projeto-ES-2026-2-G1/projects/1` ("Plannings").
 - [x] **Fase 6 — svg**: `mmdc` → SVG/PDF; emissor Graphviz. ✔ 2026-10-30
 - [x] **Fase 7 — filtros e render**: `--detail`, `--team`, `--group-by`;
       filtro devolve `Board`; remoção de `--view`/`TeamView`. ✔ 2026-10-31
+- [ ] **Fase 8 — PERT/CPM**: campos O/M/P + Prazo, cálculo de caminho crítico,
+      probabilidade e calibração pelo realizado. Entrega: `out/pert.md`,
+      `out/pert.json`, `render --style critical`. Branch: `feat/pert-cpm`.
 
 ## Heurística de colapso (sub-issues)
 
@@ -276,3 +279,66 @@ fallback e nunca é descartado.
   ou usa um script.
 - `edges-<recorte>.json` é derivado do `Board` filtrado, com contagens,
   fantasmas, arestas, isolados e ciclos.
+
+## Fase 8 — PERT/CPM (artefato de entrega)
+
+Planejada em 2026-10-31, branch `feat/pert-cpm`. PERT probabilístico é
+exigência da disciplina — não é opcional.
+
+### Decisões travadas
+
+| | Escolha |
+|---|---|
+| Unidade das estimativas | dias |
+| Campos | `ProjectV2Field` NUMBER (O/M/P) + DATE (Prazo) |
+| Semente inicial | script (`O=0.7M`, `M=Target−Start+1`, `P=1.6M`), depois revisão humana |
+| Calibração | mediana de `(closedAt−start)/(Target−start)` nas tarefas Done |
+| Deadline | campo `Prazo` por tarefa + data global (`--deadline`) |
+| Consumidor | professor e grupo |
+| Capacidade real | 13 pessoas, 3 frentes simultâneas (fora do cálculo) |
+
+### Campos novos no board
+
+```
+O      NUMBER (dias)   estimativa otimista
+M      NUMBER (dias)   estimativa mais provável
+P      NUMBER (dias)   estimativa pessimista
+Prazo  DATE            compromisso de entrega da tarefa
+```
+
+`Duration` (horas) sai da conta e vira coluna informativa. A data global do
+projeto não é campo de board: é `--deadline`/config.
+
+### Subfases
+
+1. **Campos e semeadura** — `boardgraph/pertfields.py` + subcomando
+   `boardgraph fields`; dry-run lista campos e sementes sem mutar; execução
+   cria os 5 campos e semeia as tarefas (~135 mutações; exige escopo de
+   escrita de project no `gh`).
+2. **CPM** — `schedule(board, graph, deadline=None)`: passe direto (ES/EF),
+   regressivo (LS/LF), folga = LS − ES, crítico = folga 0, por componente.
+   Testes com rede pequena conferida à mão.
+3. **PERT + calibração** — `TE=(O+4M+P)/6`, `σ=(P−O)/6`, `σ_caminho=√Σσ²`,
+   `P(≤D)=Φ(...)` via `math.erf`; probabilidade por tarefa, milestone e
+   projeto; fator de realidade das Done como cenário.
+4. **Saídas** — `boardgraph schedule` → `out/pert.md` + `out/pert.json`;
+   `render --style critical` nos dois emissores.
+5. **Validação** — divergência real (`frontend#4/#5/#6` planejados 16 dias
+   antes de `backend#18` terminar), suíte verde, documentação, merge.
+
+### Limitações declaradas
+
+- CPM ignora contenção de recursos: 13 pessoas/3 frentes não entram na conta.
+- Nós isolados têm folga infinita; o caminho crítico é o do maior componente.
+- `closedAt − start` inclui ociosidade → fator de realidade tende a otimismo.
+- Tarefa sem O/M/P cai para `M = Target − Start` com aviso.
+
+### Fora de escopo
+
+Monte Carlo, nivelamento de recursos, issue fields, múltiplos deadlines.
+
+### Regra do fluxo (branch `feat/pert-cpm`)
+
+Cada subfase termina com: entregáveis visíveis → revisão com `@deslop` no
+diff contra `main` → correções aplicadas → feedback do usuário antes da
+próxima subfase.
