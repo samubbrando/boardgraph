@@ -102,7 +102,8 @@ Cada item cru tem `id`, `createdAt`, `updatedAt`, `fieldValues.nodes[]` e
 
 ### 3.2 Item normalizado (`board["items"]`)
 
-`items` guarda **tudo que veio do board**, inclusive o que não vira nó:
+`items` guarda **tudo que veio do board e tem chave `repo#number`** (draft sem
+número cai fora na normalização), inclusive o que não vira nó:
 
 ```json
 {
@@ -116,6 +117,10 @@ Cada item cru tem `id`, `createdAt`, `updatedAt`, `fieldValues.nodes[]` e
   "status": "Todo",
   "team": "Back",
   "duration": 2,
+  "optimistic": 2.1,
+  "likely": 3.0,
+  "pessimistic": 4.8,
+  "deadline": "2026-10-08",
   "start": "2026-10-01",
   "end": "2026-10-05",
   "start_source": "issue_field | null",
@@ -136,6 +141,10 @@ Cada item cru tem `id`, `createdAt`, `updatedAt`, `fieldValues.nodes[]` e
   faltar, cai para `closedAt` e marca `end_source: "closed_at"`. `created_at`
   é coletado mas **não** é usado como fallback de início no código atual.
 - `milestone` é `null` quando a issue não tem milestone.
+- `optimistic`/`likely`/`pessimistic` vêm de `Otimista (dias)`/`Mais provável
+  (dias)`/`Pessimista (dias)` (NUMBER); `deadline` vem de `Prazo` (DATE). São
+  insumos do PERT (Fase 8) e não entram no cálculo do CPM de dependências.
+- `duration` é esforço declarado em horas; informativo, fora de todo cálculo.
 - `type` traduz `__typename` (`Issue`, `PullRequest`, `DraftIssue`).
 
 ### 3.3 Nó (`board["nodes"]`)
@@ -203,17 +212,20 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `boardgraph/auth.py` | Resolve credencial: explícita > `GITHUB_TOKEN` > `GH_TOKEN` > `gh auth token`; detecta `gh`; mensagem de escopo `read:project`. | ambiente/args → token ou `AuthError` |
 | `boardgraph/client.py` | Cliente GraphQL mínimo. Transporte `gh api graphql` ou HTTPS direto (`urllib`). `auto` escolhe `gh` se disponível. Converte `errors` em `GraphQLError` com dica de escopo. | query + variáveis → `data` |
 | `boardgraph/queries.py` | Monta o documento GraphQL. Um único documento com paginação por cursor. Inclui os dois formatos de data: campos clássicos (`ProjectV2ItemFieldDateValue`) e issue fields (`ProjectV2ItemIssueFieldValue` → `IssueFieldDateValue`). `include_deps` e `include_body` são opcionais. | flags → string GraphQL |
-| `boardgraph/fields.py` | **Toda** leitura de `fieldValues` passa aqui. `split_value` entende `issueFieldValue` e o formato clássico; `field_map` monta `{nome: valor}`; `item_key` gera chave estável. É a camada que impede `null` silencioso nas datas. | item cru → mapa de campos / chave |
+| `boardgraph/fields.py` | **Toda** leitura de `fieldValues` passa aqui. `split_value` entende `issueFieldValue` e o formato clássico; `field_map` monta `{nome: valor}`; `item_key` gera chave estável; `to_date`/`to_iso` são o parse de datas do projeto. Guarda também o vocabulário de nomes de campo (`FIELD_OTIMISTA`, …). | item cru → mapa de campos / chave |
 | `boardgraph/fetch.py` | `fetch_board` executa a query, pagina até `max_pages`, tenta de novo sem `blockedBy/parent` se o GraphQL recusar dependências (`degraded`), grava `latest.json`/`latest.meta.json` e resume o meta. | `FetchConfig` → `FetchResult` + arquivos |
 | `boardgraph/probe.py` | Relatório de cobertura. Linhas obrigatórias (`Status`, `Start date`, `Target date`, `Milestone`) geram aviso; informativas não. Detecta milestone por `(repo, number)`, `dueOn` ausente e divergência de `Status` pai/filha. | payload → relatório; grava `report.md/json` |
 | `boardgraph/model.py` | Núcleo puro. `build_board` normaliza itens; `filter_detail` aplica `parents`/`children`/`all`; `finalize` calcula `milestones`, `counts` e `warnings` uma vez. Também formata a tabela de terminal. | payload → `Board`; `Board` + `detail` → `Board` |
 | `boardgraph/graph.py` | Arestas `blocked_by` (dependência) e `parent` (hierarquia, só em `children`/`all`), fantasmas para bloqueantes fora do recorte (com time lido de `items`), Tarjan para ciclos, lista de isolados. | `Board` → grafo |
 | `boardgraph/team.py` | `resolve_teams` herda `Team` do pai quando o nó não tem time; `filter_team` devolve `Board` filtrado, mantendo tarefas sem time. `team_from_items` rotula fantasmas. | `Board` + times → `Board` |
+| `boardgraph/viz.py` | Agrupamento compartilhado dos emissores: grupo, ordem, rótulo e ids estáveis (`node_ids` com anti-colisão). Sintaxe não entra aqui. | `Board`/`graph` → grupos/ids |
 | `boardgraph/render.py` | Emissor Mermaid. `render_mermaid` agrupa por `group_by` (`milestone` ou `team`), desenha fantasmas, arestas sólidas/tracejadas, classes por `Status` e `click`. | `Board`/`graph` + `group_by` → texto `.mmd` |
 | `boardgraph/dot.py` | Emissor Graphviz. Temas `light`/`dark`, clusters por `group_by`, cores por `Status`, `URL=` para abrir a issue. | `Board`/`graph` + `group_by` → DOT |
+| `boardgraph/pertfields.py` | Criação e semeadura dos campos de estimativa (`Otimista`/`Mais provável`/`Pessimista`/`Prazo`). Dry-run por padrão; nunca sobrescreve valor humano; `Prazo` não recebe semente. Documentos GraphQL vivem em `queries.py`. | payload + client → campos criados / valores semeados |
+| `boardgraph/pert.py` | CPM puro por componente: ES/EF/LS/LF, folga, crítico (= menor folga) e prazo opcional. `duration` é exibição; `te`/`sigma` chegam na Fase 3. `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 50 testes unitários offline. | — |
+| `tests/` | 71 testes offline, rodados com pytest. | — |
 
 ## 5. Decisões e evidência
 
@@ -451,26 +463,29 @@ isolados. Zero milestones misturam times.
 
 ## 8. Estado da suíte de testes
 
-50 testes, todos offline, executados com:
+71 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
 
 ```bash
-python -m unittest discover -s tests -v
+uv run --group dev python3 -m pytest tests/ -q
 ```
 
-Resultado em 2026-10-31: `Ran 50 tests ... OK`.
+Resultado em 2026-11-01: `71 passed`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
 | `tests/test_fetch.py` | 6 | Query contém `ProjectV2ItemIssueFieldValue`/`IssueFieldDateValue`; toggles de `blockedBy` e `body`; normalização de `--filter -status:Done`; resumo marca `DEGRADED`. |
 | `tests/test_probe.py` | 5 | Board completo sem aviso; falta de `Start date` obrigatória gera aviso; campo opcional esparso não gera; `body` não coletado não é erro; milestone contada por repositório (mesmo número em repos diferentes). |
-| `tests/test_model.py` | 13 | Colapso: filha absorvida, união de janela, blocker de filha re-apontado, blocker irmão descartado, pai fora do board não colapsa. `children` mantém nós; `all` inclui PR. `items` não é mutado; `detail`+`team` compõem; janela de milestone recalculada no subconjunto. |
+| `tests/test_model.py` | 14 | Colapso: filha absorvida, união de janela, blocker de filha re-apontado, blocker irmão descartado, pai fora do board não colapsa. `children` mantém nós; `all` inclui PR. `items` não é mutado; `detail`+`team` compõem; janela de milestone recalculada no subconjunto. Normalização dos campos PERT (`optimistic`/`likely`/`pessimistic`/`deadline`). |
 | `tests/test_graph.py` | 13 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Lint Mermaid. |
 | `tests/test_team.py` | 13 | Herança de time pela cadeia de pai; sem time permanece `None`; seleção; externo mantém time de origem; fora do board marcado; blocker interno não é externo; múltiplos times; `(sem time)` nunca descartado; time inexistente avisa; time sem dependência avisa; arestas só tocam nós mantidos. |
+| `tests/test_pertfields.py` | 9 | Semente em dias inclusivos; tarefa de um dia; sem datas não semeia; `Target` antes de `Start` não semeia; valor humano nunca sobrescrito; PR/draft ficam de fora; campos a criar; resumo do dry-run; fumaça do `cli fields --execute` com client falso (4 criações + 3 escritas). |
+| `tests/test_pert.py` | 11 | Redes conferidas à mão: cadeia simples (ES/EF/LS/LF), duas cadeias paralelas com folga, isolado sem folga finita, fallback para janela, duração zero, dependência externa ignorada, `deadline` folgado e impossível, nó em ciclo excluído. Contratos: herança de `team`, `milestone` como dict. |
 
-Lacunas de teste atuais: não há teste de temas do `dot.py` (light/dark,
-escape, `URL=`), nem de `fetch_board` com cliente falso/paginação/degraded,
-nem de `auth`/`client`. `test_graph` cobre agrupamento no Graphviz, mas não o
-layout gerado.
+Os testes das fases 1–7 são estilo `unittest.TestCase` e os da Fase 8 são
+funções pytest; o pytest coleta os dois. Lacunas reconhecidas: temas do
+`dot.py` (light/dark, escape, `URL=`), `fetch_board` com cliente
+falso/paginação/degraded, `auth`/`client`, integração de CLI além da smoke de
+`fields`, e layout real do Graphviz.
 
 ## 9. Estado atual versus PLAN
 

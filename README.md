@@ -29,5 +29,7 @@ Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|
 ## Testes
 
 ```bash
-python3 -m unittest discover -s tests -t .
+uv run --group dev python3 -m pytest tests/ -q
 ```
+
+Ou sem `uv`: `python3 -m pytest tests/ -q` (pytest instalado).

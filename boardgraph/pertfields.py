@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .client import GraphQLClient
+from .queries import CREATE_PROJECT_FIELD, SET_ITEM_FIELD_VALUE
 from .fields import (
     FIELD_OTIMISTA,
     FIELD_PESSIMISTA,
@@ -37,21 +38,12 @@ FIELD_SPECS = (
 SEED_FACTORS = {FIELD_OTIMISTA: 0.7, FIELD_PROVAVEL: 1.0, FIELD_PESSIMISTA: 1.6}
 SEED_FIELDS = tuple(SEED_FACTORS)
 
-CREATE_FIELD = """
-mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
-  createProjectV2Field(input: {projectId: $projectId, name: $name, dataType: $dataType}) {
-    projectV2Field { ... on ProjectV2FieldCommon { id name dataType } }
-  }
-}
-"""
-
-SET_VALUE = """
-mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
-  updateProjectV2ItemFieldValue(
-    input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value}
-  ) { projectV2Item { id } }
-}
-"""
+@dataclass
+class Span:
+    days: int = 0
+    start: str = ""
+    end: str = ""
+    reason: str | None = None
 
 
 @dataclass
@@ -100,18 +92,17 @@ def plan_seed(payload: dict) -> tuple[list[SeedRow], list[str], list[str]]:
             continue
 
         span = _span(current.get("Start date"), current.get("Target date"))
-        if isinstance(span, str):
-            skipped.append(f"{key} ({span})")
+        if span.reason:
+            skipped.append(f"{key} ({span.reason})")
             continue
 
-        days, start, end = span
         rows.append(SeedRow(
             item_id=item.get("id") or "",
             key=key,
-            start=start,
-            end=end,
-            days=days,
-            values={name: round(days * factor, 1) for name, factor in SEED_FACTORS.items()},
+            start=span.start,
+            end=span.end,
+            days=span.days,
+            values={name: round(span.days * factor, 1) for name, factor in SEED_FACTORS.items()},
         ))
 
     rows.sort(key=lambda r: r.key)
@@ -152,7 +143,7 @@ def create_missing(
     """Cria os campos ausentes e devolve nome → {id, dataType}."""
     created: dict[str, dict] = {}
     for name, data_type in missing:
-        data = client.execute(CREATE_FIELD, {
+        data = client.execute(CREATE_PROJECT_FIELD, {
             "projectId": project_id,
             "name": name,
             "dataType": data_type,
@@ -169,7 +160,7 @@ def apply_seed(
     count = 0
     for row in rows:
         for name in SEED_FIELDS:
-            client.execute(SET_VALUE, {
+            client.execute(SET_ITEM_FIELD_VALUE, {
                 "projectId": project_id,
                 "itemId": row.item_id,
                 "fieldId": fields[name]["id"],
@@ -179,11 +170,11 @@ def apply_seed(
     return count
 
 
-def _span(start: object, end: object) -> tuple[int, str, str] | str:
-    """(dias, start, end) ou o motivo de pular a semente."""
+def _span(start: object, end: object) -> Span:
+    """Span válido ou, no campo `reason`, o motivo de pular a semente."""
     s, e = to_date(start), to_date(end)
     if s is None or e is None:
-        return "sem Start/Target"
+        return Span(reason="sem Start/Target")
     if e < s:
-        return "Target antes de Start"
-    return (e - s).days + 1, s.isoformat(), e.isoformat()
+        return Span(reason="Target antes de Start")
+    return Span(days=(e - s).days + 1, start=s.isoformat(), end=e.isoformat())

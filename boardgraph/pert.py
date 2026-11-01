@@ -5,10 +5,18 @@ com ES/EF/LS/LF, folga e marcação de crítica. A unidade é dia de calendário
 inclusive, igual ao resto do pipeline; `Duration` (horas de esforço) não entra.
 
 Arestas de hierarquia e dependências de fora do board (fantasmas) não
-restringem o cronograma. Duração 0 ocupa o dia da própria âncora (marco),
-em vez de consumir dia nenhum — mantém start ≤ finish sem inverter datas. Sem `deadline`, cada componente termina no seu
-próprio EF; nó sem nenhuma dependência interna não tem folga finita —
-`slack=None`, nunca zero — e não é marcado como crítico.
+restringem o cronograma. Duração 0 ocupa o dia da própria âncora (marco), em
+vez de consumir dia algum — mantém start ≤ finish sem inverter datas. Sem
+`deadline`, cada componente termina no seu próprio EF; nó sem dependência
+interna não tem folga finita (`slack=None`) e não é crítico.
+
+Contratos:
+- `duration` é exibição (int); a Fase 3 acrescenta `te`/`sigma` sem substituí-la.
+- `milestone` é o dict do nó — a chave do projeto é `(repo, number)`, nunca título.
+- `team` passa pela herança (`resolve_teams`), igual a `graph`/`render`.
+- Crítico = menor folga do componente (caminho mais longo), não folga zero:
+  com prazo folgado todos têm folga positiva e ainda há caminho crítico.
+- `Prazo` por tarefa não entra no cálculo; é alvo de comparação da Fase 3.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from .fields import to_date, to_iso
+from .team import UNASSIGNED, resolve_teams
 
 
 def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> dict:
@@ -62,6 +71,7 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
         pairs = ", ".join(f"{e['from']} → {e['to']}" for e in external)
         warnings.append(f"{len(external)} dependência(s) de fora do board ignorada(s): {pairs}")
 
+    teams = resolve_teams(board)
     deadline_date = to_date(deadline)
     if deadline is not None and deadline_date is None:
         raise ValueError(f"deadline inválido: {deadline!r}")
@@ -98,8 +108,8 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
             tasks.append({
                 "key": key,
                 "title": node.get("title"),
-                "team": node.get("team"),
-                "milestone": milestone.get("title"),
+                "team": teams.get(key) or UNASSIGNED,
+                "milestone": milestone,
                 "component": index,
                 "anchor": to_iso(anchor),
                 "duration": durations[key],

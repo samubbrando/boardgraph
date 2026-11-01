@@ -12,5 +12,8 @@ dependencies = []
 [project.scripts]
 boardgraph = "boardgraph.cli:main"
 
+[dependency-groups]
+dev = ["pytest>=8"]
+
 [tool.setuptools]
 packages = ["boardgraph"]

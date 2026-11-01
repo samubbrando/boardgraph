@@ -13,7 +13,7 @@ calculados em `finalize`, depois de todos os filtros.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Iterable
 
 from .fields import (
@@ -273,12 +273,12 @@ def _milestone_windows(nodes: list[dict]) -> list[dict]:
         delta = None
         status = "sem_due"
         if due and end:
-            delta = (date.fromisoformat(end) - date.fromisoformat(due)).days
+            delta = (to_date(end) - to_date(due)).days
             status = "estourado" if delta > 0 else "ok"
 
         span = None
         if start and end:
-            span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+            span = (to_date(end) - to_date(start)).days + 1
 
         out.append(
             {

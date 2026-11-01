@@ -157,7 +157,7 @@ def summarize(meta: dict) -> str:
     detail = ", ".join(f"{v} {k}" for k, v in counts.items() if v)
     if detail:
         parts.append(f"({detail})")
-    parts.append(f"páginas {meta.get('pages', '?')}/{meta.get('pages', '?')}")
+    parts.append(f"páginas {meta.get('pages', '?')}")
     rate = (meta.get("rateLimit") or {}).get("remaining")
     if rate is not None:
         parts.append(f"rateLimit {rate}")
@@ -176,12 +176,8 @@ def _count_content(items: list[dict]) -> dict[str, int]:
 
 
 def _is_dependency_failure(exc: GraphQLError) -> bool:
-    haystack = " ".join(str(e.get("path", "")) + e.get("message", "") for e in exc.errors)
+    haystack = " ".join(f"{e.get('path', '')} {e.get('message', '')}" for e in exc.errors)
     return any(token in haystack for token in ("blockedBy", "parent", "subIssues"))
-
-
-
-
 
 
 def _now() -> datetime:

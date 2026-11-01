@@ -126,3 +126,26 @@ def test_nos_em_ciclo_ficam_fora():
 
     assert [t["key"] for t in result["tasks"]] == ["C"]
     assert any("ciclo" in w for w in result["warnings"])
+
+
+def test_team_herdado_do_pai():
+    inherit = _node("o/r#2", likely=2)
+    inherit["team"] = None
+    board = {
+        "nodes": [inherit],
+        "items": [
+            {"key": "o/r#2", "team": None, "parent": "o/r#1"},
+            {"key": "o/r#1", "team": "Back", "parent": None},
+        ],
+    }
+    result = schedule(board, _graph())
+
+    assert result["tasks"][0]["team"] == "Back"
+
+
+def test_milestone_vai_como_dict_nao_como_titulo():
+    node = _node("o/r#1", likely=1)
+    node["milestone"] = {"repo": "o/r", "number": 3, "title": "M3", "due_on": "2026-02-01"}
+    result = schedule({"nodes": [node]}, _graph())
+
+    assert result["tasks"][0]["milestone"]["number"] == 3

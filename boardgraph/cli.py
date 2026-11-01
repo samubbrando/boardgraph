@@ -113,15 +113,14 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_render(args)
         if args.command == "fields":
             return _cmd_fields(args)
-        raise SystemExit(f"comando desconhecido: {args.command}")
     except AuthError as exc:
         print(f"erro de autenticação: {exc}", file=sys.stderr)
         return 2
     except GraphQLError as exc:
-        if args.command == "fields":
-            hint = "\ndica: mutação exige escopo de escrita (gh auth refresh -s project)"
-        else:
-            hint = "\n" + "dica: token sem `read:project` (gh auth refresh -s read:project)" if exc.hint_missing_scope else ""
+        hint = ""
+        if exc.hint_missing_scope:
+            scope = "project" if args.command == "fields" else "read:project"
+            hint = f"\ndica: token sem escopo `{scope}` (gh auth refresh -s {scope})"
         print(f"erro GraphQL: {exc}{hint}", file=sys.stderr)
         return 3
     except (RuntimeError, FileNotFoundError) as exc:

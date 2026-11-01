@@ -9,6 +9,14 @@ from __future__ import annotations
 import re
 
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
+from .viz import (
+    TITLE_LIMIT,
+    group_id,
+    group_label,
+    group_order,
+    node_group,
+    node_ids,
+)
 
 STATUS_CLASS = {
     "Todo": "todo",
@@ -24,22 +32,19 @@ CLASS_DEFS = {
     "ghost": "fill:transparent,stroke:#6b7280,color:#9ca3af,stroke-dasharray:2 4",
 }
 
-TITLE_LIMIT = 34
-
-
 def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str:
     teams_map = resolve_teams(board) if group_by == "team" else {}
-    node_id = _ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
+    node_id = node_ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
 
-    order = _group_order(board, group_by)
+    order = group_order(board, group_by)
     groups: dict[tuple, list[dict]] = {}
     for node in graph["nodes"]:
-        groups.setdefault(_node_group(node, group_by, teams_map), []).append(node)
+        groups.setdefault(node_group(node, group_by, teams_map), []).append(node)
 
     lines = [_header(board, group_by), "flowchart LR"]
 
     for group, nodes in sorted(groups.items(), key=lambda kv: (order.get(kv[0], 10**6), str(kv[0]))):
-        lines.append(f'  subgraph {_sid(group)}["{_group_label(group, nodes)}"]')
+        lines.append(f'  subgraph {group_id(group)}["{_esc(group_label(group, nodes))}"]')
         for node in sorted(nodes, key=lambda n: n["key"]):
             lines.append(f'    {node_id[node["key"]]}["{_label(node)}"]:::{_class(node)}')
         lines.append("  end")
@@ -75,63 +80,7 @@ def _header(board: dict, group_by: str) -> str:
     return "%% " + " · ".join(parts)
 
 
-def _node_group(node: dict, group_by: str, teams_map: dict[str, str | None]) -> tuple:
-    if group_by == "team":
-        return ("team", teams_map.get(node["key"]) or UNASSIGNED)
-    ms = node.get("milestone")
-    if not ms or not ms.get("number"):
-        return ("sem_milestone",)
-    return ("milestone", ms["repo"], ms["number"])
-
-
-def _group_order(board: dict, group_by: str) -> dict[tuple, int]:
-    if group_by == "team":
-        return {("team", team): i for i, team in enumerate(board.get("teams") or [])}
-    return {
-        ("milestone", m["repo"], m["number"]): i
-        for i, m in enumerate(board.get("milestones") or [])
-    }
-
-
-def _sid(group: tuple) -> str:
-    if group[0] == "sem_milestone":
-        return "m_sem_milestone"
-    if group[0] == "team":
-        return "t_" + (_slug(group[1]) or "sem_time")
-    return f"m_{_slug(group[1].split('/')[-1])}_{group[2]}"
-
-
-def _group_label(group: tuple, nodes: list[dict]) -> str:
-    if group[0] == "sem_milestone":
-        return "sem milestone"
-    if group[0] == "team":
-        return _esc(f"{group[1]} · {len(nodes)}")
-    title = nodes[0]["milestone"].get("title") or f"milestone {group[2]}"
-    return _esc(f"{title} · {len(nodes)}")
-
-
-def _ids(keys: list[str]) -> dict[str, str]:
-    """Ids curtos e estáveis: repo#12 → n_repo_12, com sufixo em caso de colisão."""
-    out: dict[str, str] = {}
-    used: set[str] = set()
-    for key in keys:
-        repo, _, number = key.rpartition("#")
-        base = f"n_{_slug(repo.split('/')[-1])}_{number}"
-        candidate, n = base, 2
-        while candidate in used:
-            candidate, n = f"{base}_{n}", n + 1
-        used.add(candidate)
-        out[key] = candidate
-    return out
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^0-9a-zA-Z]+", "_", text).strip("_")
-
-
 def _class(node: dict) -> str:
-    if node.get("external"):
-        return "ghost"
     return STATUS_CLASS.get(node.get("status") or "", "todo")
 
 
