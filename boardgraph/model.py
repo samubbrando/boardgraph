@@ -16,7 +16,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Iterable
 
-from .fields import field_map
+from .fields import field_map, to_date, to_iso
 from .team import UNASSIGNED, resolve_teams
 
 
@@ -104,11 +104,11 @@ def _normalize(item: dict) -> dict:
     fields = field_map(item)
     ms = content.get("milestone") or {}
 
-    start = _date(fields.get("Start date"))
-    end = _date(fields.get("Target date"))
+    start = to_date(fields.get("Start date"))
+    end = to_date(fields.get("Target date"))
     end_source = "issue_field" if end else None
     if not end:
-        closed = _date(content.get("closedAt"))
+        closed = to_date(content.get("closedAt"))
         if closed:
             end, end_source = closed, "closed_at"
 
@@ -134,15 +134,15 @@ def _normalize(item: dict) -> dict:
             "repo": repo,
             "number": ms.get("number"),
             "title": ms.get("title"),
-            "due_on": _iso(_date(ms.get("dueOn"))),
+            "due_on": to_iso(to_date(ms.get("dueOn"))),
         }
         if ms.get("number")
         else None,
         "blocked_by": _keys(content.get("blockedBy")),
         "parent": parent_key,
         "children": [],
-        "created_at": _iso(_date(content.get("createdAt"))),
-        "closed_at": _iso(_date(content.get("closedAt"))),
+        "created_at": to_iso(to_date(content.get("createdAt"))),
+        "closed_at": to_iso(to_date(content.get("closedAt"))),
         "absorbed_by": None,
     }
 
@@ -385,22 +385,3 @@ def render_terminal(board: dict) -> str:
 def _clip(text: str | None, size: int) -> str:
     text = text or "—"
     return text if len(text) <= size else text[: size - 1] + "…"
-
-
-# ---------------------------------------------------------------------- datas
-
-
-def _date(value) -> date | None:
-    if not value:
-        return None
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    text = str(value)[:10]
-    try:
-        return date.fromisoformat(text)
-    except ValueError:
-        return None
-
-
-def _iso(value: date | None) -> str | None:
-    return value.isoformat() if value else None

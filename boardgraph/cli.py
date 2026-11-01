@@ -16,6 +16,14 @@ from .model import build_board, filter_detail, finalize, render_terminal
 from .render import render_mermaid
 from .team import filter_team
 from .dot import render_dot
+from .pertfields import (
+    apply_seed,
+    create_missing,
+    existing_fields,
+    missing_fields,
+    plan_seed,
+    render_dryrun,
+)
 from .probe import build_report, write
 from .probe import render_terminal as render_probe
 
@@ -60,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--theme", choices=["light", "dark"], default="light")
     render.add_argument("--print", action="store_true", help="imprime o Mermaid no terminal")
 
+    fields = sub.add_parser(
+        "fields",
+        help="cria e semeia os campos O/M/P + Prazo (dry-run por padrão)",
+    )
+    fields.add_argument("--out", type=Path, default=Path("out"), help="diretório de saída")
+    fields.add_argument("--input", type=Path, help="payload alternativo (padrão: out/raw/latest.json)")
+    fields.add_argument("--execute", action="store_true", help="executa as mutações (padrão: só lista)")
+
     return parser
 
 
@@ -95,12 +111,17 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_model(args)
         if args.command == "render":
             return _cmd_render(args)
+        if args.command == "fields":
+            return _cmd_fields(args)
         raise SystemExit(f"comando desconhecido: {args.command}")
     except AuthError as exc:
         print(f"erro de autenticação: {exc}", file=sys.stderr)
         return 2
     except GraphQLError as exc:
-        hint = "\n" + "dica: token sem `read:project` (gh auth refresh -s read:project)" if exc.hint_missing_scope else ""
+        if args.command == "fields":
+            hint = "\ndica: mutação exige escopo de escrita (gh auth refresh -s project)"
+        else:
+            hint = "\n" + "dica: token sem `read:project` (gh auth refresh -s read:project)" if exc.hint_missing_scope else ""
         print(f"erro GraphQL: {exc}{hint}", file=sys.stderr)
         return 3
     except (RuntimeError, FileNotFoundError) as exc:
@@ -240,6 +261,29 @@ def _cmd_model(args: argparse.Namespace) -> int:
     else:
         print(render_terminal(board))
         print(f"\n  {path}")
+    return 0
+
+
+def _cmd_fields(args: argparse.Namespace) -> int:
+    source = args.input or (args.out / "raw" / "latest.json")
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    rows, skipped, filled = plan_seed(payload)
+    missing = missing_fields(payload)
+    print(render_dryrun(rows, skipped, filled, missing))
+
+    if not args.execute:
+        print("\ndry-run: nada foi alterado. Rode com --execute para aplicar.")
+        return 0
+
+    project_id = (payload.get("project") or {}).get("id")
+    if not project_id:
+        raise RuntimeError(f"payload sem project.id em {source}; rode `boardgraph fetch` de novo")
+
+    client = GraphQLClient()
+    created = create_missing(client, project_id, missing)
+    fields = {**existing_fields(payload), **created}
+    count = apply_seed(client, project_id, rows, fields)
+    print(f"\nok · {len(created)} campos criados · {count} valores semeados ({len(rows)} itens)")
     return 0
 
 
