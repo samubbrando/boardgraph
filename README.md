@@ -1,0 +1,33 @@
+# boardgraph
+
+Lê um GitHub Project (v2) e gera grafos de dependência por milestone ou por
+time, com janelas de tempo calculadas a partir das datas das próprias issues.
+
+## Requisitos
+
+- Python 3.10+
+- [`gh`](https://cli.github.com/) autenticado com escopo `read:project`
+- [Graphviz](https://graphviz.org/) apenas para `svg`/`pdf`
+
+## Uso
+
+```bash
+python3 -m boardgraph fetch  --owner ORG --project 1
+python3 -m boardgraph probe
+python3 -m boardgraph model
+python3 -m boardgraph render --detail parents --format pdf
+```
+
+Filtros: `--detail parents|children|all` e `--team` (repetível).
+Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|dark`.
+
+## Documentação
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — pipeline, modelo de dados, decisões e armadilhas.
+- [`PLAN.md`](PLAN.md) — fases, achados medidos no board e pontos em aberto.
+
+## Testes
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
