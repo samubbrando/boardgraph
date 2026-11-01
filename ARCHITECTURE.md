@@ -358,6 +358,14 @@ Datas de exibição arredondam para fora (`floor`/`ceil`); com TE fracionário,
 tarefas encadeadas podem compartilhar o dia de fronteira. `es/ef/ls/lf` são os
 offsets exatos e devem ser o que a tabela do PERT mostra.
 
+★ e o vermelho dos diagramas marcam o **conjunto de menor folga** (todos os
+ramos empatados no mais longo); `critical_path` em `components` é uma cadeia
+representativa por componente — os dois podem diferir em tamanho e não é
+divergência. Arestas destacadas são as entre dois nós críticos; com ramos
+paralelos, alguma pode não ser "apertada" (heurística visual, não cálculo).
+Frentes livres (`slack: null`) seguem entrando no produto de P(projeto):
+a ausência de folga é sobre restrições internas, não sobre o prazo.
+
 ## 6. Armadilhas conhecidas
 
 ### Issue field versus campo clássico
@@ -490,6 +498,16 @@ Saídas em `out/`:
 | `out/graph-<recorte>-critical.*` | `render --style critical` | caminho crítico em vermelho |
 | `out/pert.md` | `schedule` | tabela PERT/CPM de entrega |
 | `out/pert.json` | `schedule` | cronograma + calibração |
+| `out/edges-<recorte>-critical.json` | `render --style critical` | arestas do recorte |
+
+Contrato do `pert.json`: raiz com `generatedAt`, `detail`, `teams`, `schedule`
+e `calibration`. `schedule` = `{deadline, finish, tasks[], critical[],
+components[], probabilities{project, milestones[]}, warnings[]}`; cada tarefa
+carrega estimativas (`optimistic/likely/pessimistic`), `te`/`sigma`/`sigma_path`,
+offsets (`es/ef/ls/lf`, dias), datas ISO (`start/finish/late_start/late_finish`),
+`planned_*`, `duration` (= `ceil(te)`, exibição) e `duration_source` ∈
+{`estimativa`, `janela`, `zero`}. Unidades: dias de calendário inclusivos.
+`calibration` = `{reality_factor, sample[], skipped[], warnings[]}`.
 
 Números atuais (board de referência, `parents`): 45 itens, 41 nós, 3
 absorvidos, 13 milestones, 34 arestas de dependência, 1 fantasma

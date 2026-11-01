@@ -1,5 +1,7 @@
 """PERT/CPM em redes pequenas conferidas à mão."""
 
+import json
+
 from boardgraph.pert import calibrate, render_markdown, schedule
 
 
@@ -405,8 +407,6 @@ def test_render_markdown_mostra_tabelas_e_simbolos():
 
 
 def test_cli_schedule_grava_pert_md_e_json(tmp_path):
-    import json as jsonlib
-
     from boardgraph.cli import main
 
     def value(name, v):
@@ -426,13 +426,13 @@ def test_cli_schedule_grava_pert_md_e_json(tmp_path):
     }
     payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item]}
     src = tmp_path / "latest.json"
-    src.write_text(jsonlib.dumps(payload), encoding="utf-8")
+    src.write_text(json.dumps(payload), encoding="utf-8")
 
     code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "2026-01-31"])
 
     assert code == 0
     md = (tmp_path / "pert.md").read_text(encoding="utf-8")
-    data = jsonlib.loads((tmp_path / "pert.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / "pert.json").read_text(encoding="utf-8"))
     assert md.startswith("# PERT/CPM")
     assert data["schedule"]["deadline"] == "2026-01-31"
     assert "reality_factor" in data["calibration"]
@@ -440,13 +440,58 @@ def test_cli_schedule_grava_pert_md_e_json(tmp_path):
 
 
 def test_cli_schedule_rejeita_deadline_invalido(tmp_path):
-    import json as jsonlib
-
     from boardgraph.cli import main
 
     src = tmp_path / "latest.json"
-    src.write_text(jsonlib.dumps({"project": {"id": "P"}, "fields": [], "items": []}), encoding="utf-8")
+    src.write_text(json.dumps({"project": {"id": "P"}, "fields": [], "items": []}), encoding="utf-8")
 
     code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "31/01/2026"])
 
     assert code == 1
+
+
+def test_conjunto_critico_nao_depende_do_prazo():
+    def est(key):
+        n = _node(key, start="2026-01-01")
+        n.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+        return n
+
+    nodes = [est("o/r#1"), est("o/r#2"), est("o/r#3")]
+    graph = _graph(("o/r#1", "o/r#2"))
+
+    sem_prazo = schedule({"nodes": nodes}, graph)
+    com_prazo = schedule({"nodes": nodes}, graph, deadline="2026-12-31")
+
+    assert sem_prazo["critical"] == com_prazo["critical"]
+
+
+def test_cli_render_style_critical_gera_artefatos(tmp_path):
+    import json
+
+    from boardgraph.cli import main
+
+    def value(name, v):
+        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
+
+    def item(number, blocked=()):
+        return {
+            "id": f"i{number}",
+            "content": {
+                "__typename": "Issue", "number": number, "title": f"t{number}", "state": "OPEN",
+                "repository": {"nameWithOwner": "org/repo"},
+                "blockedBy": {"nodes": [{"number": b, "repository": {"nameWithOwner": "org/repo"}} for b in blocked]},
+            },
+            "fieldValues": {"nodes": [value("Start date", "2026-01-01"), value("Target date", "2026-01-05")]},
+        }
+
+    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item(1), item(2, blocked=[1])]}
+    src = tmp_path / "latest.json"
+    src.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(["render", "--input", str(src), "--out", str(tmp_path), "--style", "critical", "--format", "mmd"])
+
+    assert code == 0
+    text = (tmp_path / "graph-parents-critical.mmd").read_text(encoding="utf-8")
+    assert "classDef crit" in text
+    assert "class n_repo_1 crit;" in text
+    assert "n_repo_1 ==> n_repo_2" in text

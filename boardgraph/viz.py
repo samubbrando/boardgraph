@@ -13,6 +13,7 @@ import re
 from .team import UNASSIGNED
 
 TITLE_LIMIT = 34
+CRIT_COLOR = "#dc2626"
 
 
 def slug(text: str) -> str:

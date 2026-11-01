@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             hint = "\ndica: token sem escopo `read:project` (gh auth refresh -s read:project)"
         print(f"erro GraphQL: {exc}{hint}", file=sys.stderr)
         return 3
-    except (RuntimeError, FileNotFoundError) as exc:
+    except (RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"erro: {exc}", file=sys.stderr)
         return 1
 
@@ -202,7 +202,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
         critical = set(pert_schedule(board, graph)["critical"])
 
     label = _stem_label(args.detail, args.team, args.group_by)
-    if critical:
+    if args.style == "critical":
         label += "-critical"
     stem = args.out / f"graph-{label}"
     edges_path = args.out / f"edges-{label}.json"
@@ -288,9 +288,6 @@ def _cmd_model(args: argparse.Namespace) -> int:
 def _cmd_schedule(args: argparse.Namespace) -> int:
     source = args.input or (args.out / "raw" / "latest.json")
     payload = json.loads(source.read_text(encoding="utf-8"))
-    if args.deadline and not to_date(args.deadline):
-        raise RuntimeError(f"deadline inválido: {args.deadline!r}")
-
     board = _apply_filters(payload, args.detail, args.team)
     graph = build_graph(board)
     result = pert_schedule(board, graph, deadline=args.deadline)
@@ -320,10 +317,10 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     else:
         project = result["probabilities"]["project"]
         print(
-            f"schedule · fim {result['finish']} · {len(result['critical'])} críticas"
+            f"schedule · fim {result['finish'] or '—'} · {len(result['critical'])} críticas"
             f" · {len(result['components'])} componentes"
         )
-        if project:
+        if project and project["probability"] is not None:
             print(f"          P(projeto ≤ {project['deadline']}) = {project['probability']:.3f}")
         for warning in result["warnings"]:
             print(f"          aviso: {warning}")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
 from .viz import (
+    CRIT_COLOR,
     TITLE_LIMIT,
     group_id,
     group_label,
@@ -74,7 +75,7 @@ def render_mermaid(
         lines.append(f"  classDef {name} {style}")
 
     if critical:
-        lines.append("  classDef crit stroke:#dc2626,stroke-width:3px")
+        lines.append(f"  classDef crit stroke:{CRIT_COLOR},stroke-width:3px")
         for node in graph["nodes"]:
             if node["key"] in critical:
                 lines.append(f"  class {node_id[node['key']]} crit;")

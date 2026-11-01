@@ -144,6 +144,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
 class CriticalStyleTests(unittest.TestCase):
     def _setup(self):
         nodes = [_node("o/backend#1"), _node("o/frontend#2", blocked=["o/backend#1"])]

@@ -264,7 +264,7 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
     project = probs["project"]
     if project:
         lines.append(
-            f"- P(projeto ≤ {project['deadline']}) = **{_pct(project['probability'])}**"
+            f"- P(projeto ≤ {project['deadline']}) = **{_prob(project['probability'])}**"
         )
     lines.append("")
 
@@ -280,29 +280,41 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
             lines.append(
                 f"| {label} | {ms['tasks']} | {ms['deadline'] or '—'} "
                 f"| {ms['source'] or '—'} | {ms['expected_finish'] or '—'} "
-                f"| {ms['sigma_path']:.2f} | {_pct(ms['probability'])} |"
+                f"| {ms['sigma_path']:.2f} | {_prob(ms['probability'])} |"
             )
         lines.append("")
 
+    rows = sorted(result["tasks"], key=lambda t: (t["component"], t["es"], t["key"]))
     lines += [
         "## Tabela PERT (ES/EF/LS/LF em dias desde a âncora do componente)",
         "",
-        "| tarefa | O | M | P | TE | σ | ES | EF | LS | LF | folga | crítica |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|",
+        "| comp | tarefa | O | M | P | TE | σ | ES | EF | LS | LF | folga | crítica |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|",
     ]
-    for t in sorted(result["tasks"], key=lambda t: (t["component"], t["es"], t["key"])):
-        late = "— | —" if t["slack"] is None else f"{t['ls']:g} | {t['lf']:g}"
-        lines.append(
-            f"| {_short(t['key'])} | {_num(t['optimistic'])} | {_num(t['likely'])} "
-            f"| {_num(t['pessimistic'])} | {t['te']:.2f} | {t['sigma']:.2f} "
-            f"| {t['es']:g} | {t['ef']:g} | {late} "
-            f"| {_slack(t['slack'])} | {'★' if t['critical'] else ''} |"
-        )
+    for t in rows:
+        late = ["—", "—"] if t["slack"] is None else [f"{t['ls']:g}", f"{t['lf']:g}"]
+        cells = [
+            str(t["component"]),
+            _short(t["key"]),
+            _fmt(t["optimistic"]),
+            _fmt(t["likely"]),
+            _fmt(t["pessimistic"]),
+            f"{t['te']:.2f}",
+            f"{t['sigma']:.2f}",
+            f"{t['es']:g}",
+            f"{t['ef']:g}",
+            late[0],
+            late[1],
+            _fmt(t["slack"], none="∞"),
+            "★" if t["critical"] else "",
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
     lines += [
         "",
-        "folga = LS − ES (contra o prazo global, quando definido). Tarefa sem "
-        "restrição interna não tem folga finita nem LS/LF — é uma frente livre. "
-        "★ = menor folga do componente (caminho mais longo).",
+        "folga = LS − ES (contra o prazo global, quando definido). Frente livre "
+        "(sem restrição interna) não tem folga finita; no `pert.json`, `slack: "
+        "null` e LS/LF refletem apenas o prazo global. ★ = menor folga do "
+        "componente (conjunto crítico; ramos paralelos empatados também entram).",
     ]
     lines.append("")
 
@@ -312,12 +324,12 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
         "| tarefa | time | planejado | calculado | Prazo | P(≤ Prazo) |",
         "|---|---|---|---|---|---:|",
     ]
-    for t in sorted(result["tasks"], key=lambda t: (t["component"], t["es"], t["key"])):
+    for t in rows:
         lines.append(
             f"| {_short(t['key'])} | {t['team']} "
             f"| {_span(t['planned_start'], t['planned_end'])} "
             f"| {_span(t['start'], t['finish'])} | {t['deadline'] or '—'} "
-            f"| {_pct(t['probability'])} |"
+            f"| {_prob(t['probability'])} |"
         )
     lines.append("")
 
@@ -362,15 +374,11 @@ def _short(key: str) -> str:
     return key.rsplit("/", 1)[-1]
 
 
-def _num(value: float | None) -> str:
-    return f"{value:g}" if value is not None else "—"
+def _fmt(value: float | None, none: str = "—") -> str:
+    return f"{value:g}" if value is not None else none
 
 
-def _slack(value: float | None) -> str:
-    return f"{value:g}" if value is not None else "∞"
-
-
-def _pct(value: float | None) -> str:
+def _prob(value: float | None) -> str:
     return f"{value:.3f}" if value is not None else "—"
 
 

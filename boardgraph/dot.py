@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
 from .viz import (
+    CRIT_COLOR,
     TITLE_LIMIT,
     group_id,
     group_label,
@@ -88,7 +89,7 @@ def render_dot(
         if not src or not dst:
             continue
         if edge["from"] in critical and edge["to"] in critical:
-            style = 'color="#dc2626", penwidth=2'
+            style = f'color="{CRIT_COLOR}", penwidth=2'
         else:
             style = 'style="dashed"' if edge["kind"] == "hierarchy" else f'color="{t["edge"]}"'
         out.append(f"  {src} -> {dst} [{style}, arrowsize=0.7];")
@@ -121,7 +122,7 @@ def _attrs(node: dict, t: dict, critical: bool = False) -> str:
     style = '"rounded,filled' + (",dashed" if key == "todo" else "") + '"'
     penwidth = ", penwidth=2.6" if critical else ""
     if critical:
-        border = "#dc2626"
+        border = CRIT_COLOR
     return (
         f'label="{_esc(_node_label(node))}", fillcolor="{fill}", color="{border}", '
         f'fontcolor="{font}", style={style}{penwidth}{_url(node)}'
