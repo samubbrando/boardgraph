@@ -213,6 +213,27 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
     }
 
 
+def reality_scenario(board: dict, graph: dict, factor: float | None, deadline=None) -> dict | None:
+    """Cronograma com as estimativas multiplicadas pelo fator de realidade."""
+    if not factor:
+        return None
+    scaled = dict(board)
+    scaled["nodes"] = [
+        {
+            **n,
+            "optimistic": _scale(n.get("optimistic"), factor),
+            "likely": _scale(n.get("likely"), factor),
+            "pessimistic": _scale(n.get("pessimistic"), factor),
+        }
+        for n in board.get("nodes") or []
+    ]
+    return schedule(scaled, graph, deadline=deadline)
+
+
+def _scale(value: float | None, factor: float) -> float | None:
+    return value * factor if value is not None else None
+
+
 def calibrate(board: dict) -> dict:
     """Fator de realidade: mediana de real/planejado nas tarefas concluídas."""
     samples: list[dict] = []
@@ -251,7 +272,9 @@ def calibrate(board: dict) -> dict:
 # ---------------------------------------------------------------- apresentação
 
 
-def render_markdown(board: dict, result: dict, calibration: dict) -> str:
+def render_markdown(
+    board: dict, result: dict, calibration: dict, scenario: dict | None = None
+) -> str:
     """Tabela de entrega do PERT/CPM em Markdown."""
     probs = result["probabilities"]
     lines = [
@@ -265,6 +288,12 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
     if project:
         lines.append(
             f"- P(projeto ≤ {project['deadline']}) = **{_prob(project['probability'])}**"
+        )
+    if scenario:
+        delta = _days(scenario["finish"], result["finish"])
+        lines.append(
+            f"- cenário com fator de realidade {calibration['reality_factor']:.2f}: "
+            f"fim ajustado **{scenario['finish']}** ({delta:+d} dias)"
         )
     lines.append("")
 
@@ -333,6 +362,30 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
         )
     lines.append("")
 
+    divergent, minor = _divergences(result["tasks"])
+    if divergent:
+        lines += [
+            "## Divergências entre plano e cálculo",
+            "",
+            "| tarefa | planejado | calculado | atraso no início | entrega vs plano |",
+            "|---|---|---|---:|---:|",
+        ]
+        for t, delay, delivery in divergent:
+            lines.append(
+                f"| {_short(t['key'])} | {_span(t['planned_start'], t['planned_end'])} "
+                f"| {_span(t['start'], t['finish'])} | {_signed(delay)} "
+                f"| {_signed(delivery)} |"
+            )
+        lines.append("")
+        lines.append(
+            "atraso no início = o quanto o cálculo começa depois do planejado "
+            "(dependência que o plano não respeita). entrega vs plano = "
+            "**+** folga no próprio plano, **−** termina depois do planejado. "
+            f"Só entram linhas de ≥ 2 dias; {minor} tarefa(s) com desvio de 1 dia "
+            "(arredondamento do TE) ficam de fora."
+        )
+        lines.append("")
+
     factor = calibration["reality_factor"]
     lines.append("## Calibração pelo realizado")
     lines.append("")
@@ -359,6 +412,34 @@ def render_markdown(board: dict, result: dict, calibration: dict) -> str:
         lines += [f"- {w}" for w in warnings]
         lines.append("")
     return "\n".join(lines)
+
+
+def _divergences(tasks: list[dict]) -> tuple[list[tuple[dict, int | None, int | None]], int]:
+    """(linhas de ≥ 2 dias, contagem de desvios de 1 dia)."""
+    big: list[tuple[dict, int | None, int | None]] = []
+    minor = 0
+    for t in tasks:
+        ps, cs = to_date(t["planned_start"]), to_date(t["start"])
+        pe, ce = to_date(t["planned_end"]), to_date(t["finish"])
+        delay = (cs - ps).days if ps and cs else None
+        delivery = (pe - ce).days if pe and ce else None
+        worst = max(abs(delay or 0), abs(delivery or 0))
+        if worst >= 2:
+            big.append((t, delay, delivery))
+        elif worst == 1:
+            minor += 1
+    big.sort(key=lambda row: (row[2] if row[2] is not None else 0, -(row[1] or 0), row[0]["key"]))
+    return big, minor
+
+
+def _signed(value: int | None) -> str:
+    return f"{value:+d}d".replace("-", "−") if value is not None else "—"
+
+
+def _days(later: str | None, earlier: str | None) -> int:
+    if not later or not earlier:
+        return 0
+    return (to_date(later) - to_date(earlier)).days
 
 
 def _meta_line(board: dict, result: dict) -> str:

@@ -328,8 +328,21 @@ campo de board: é `--deadline`/config.
    projeto; fator de realidade das Done como cenário.
 4. **Saídas** ✔ 2026-11-01 — `boardgraph schedule` → `out/pert.md` + `out/pert.json`;
    `render --style critical` nos dois emissores.
-5. **Validação** — divergência real (`frontend#4/#5/#6` planejados 16 dias
-   antes de `backend#18` terminar), suíte verde, documentação, merge.
+5. **Validação** ✔ 2026-11-01 — divergências plano × cálculo no `pert.md`,
+   cenário com o fator de realidade, suíte verde (102 testes), documentação.
+   Merge em `main` pendente de aval.
+
+### Resultado medido (2026-11-01, board de referência)
+
+- Fim calculado 2026-11-11; 22 críticas em 41 nós; 19 componentes.
+- A história dos 16 dias virou: `frontend#4..9` começam +6d depois do planejado
+  e entregam −7d (dependência real); `backend#18/19` têm +10d de folga no
+  próprio plano. Ou seja, ~5–7 dias de conflito de dependência, resto é buffer.
+- Calibração: fator de realidade **1.67** (n=19, 26 ignoradas).
+- Cenário com o fator: fim ajustado **2026-12-07** (+26 dias) — passa o prazo
+  global de 2026-12-01 em 6 dias, mesmo com P(projeto) = 1.000 no cenário atual.
+- Probabilidades com `dueOn`: `Milestone 0 - Backend` 0.369; `Mllestone 1` e
+  `Milestone 2` com P = 0.000 (prazos já estourados no plano).
 
 ### Limitações declaradas
 

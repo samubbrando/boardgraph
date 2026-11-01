@@ -26,7 +26,7 @@ from .pertfields import (
     render_dryrun,
 )
 from .pert import calibrate as pert_calibrate
-from .pert import render_markdown, schedule as pert_schedule
+from .pert import reality_scenario, render_markdown, schedule as pert_schedule
 from .probe import build_report, write
 from .probe import render_terminal as render_probe
 
@@ -292,11 +292,14 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     graph = build_graph(board)
     result = pert_schedule(board, graph, deadline=args.deadline)
     calibration = pert_calibrate(board)
+    scenario = reality_scenario(board, graph, calibration["reality_factor"], args.deadline)
 
     args.out.mkdir(parents=True, exist_ok=True)
     md_path = args.out / "pert.md"
     json_path = args.out / "pert.json"
-    md_path.write_text(render_markdown(board, result, calibration), encoding="utf-8")
+    md_path.write_text(
+        render_markdown(board, result, calibration, scenario), encoding="utf-8"
+    )
     json_path.write_text(
         json.dumps(
             {
@@ -305,6 +308,10 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 "teams": board.get("teams"),
                 "schedule": result,
                 "calibration": calibration,
+                "scenario": {
+                    "factor": calibration["reality_factor"],
+                    "finish": scenario["finish"] if scenario else None,
+                },
             },
             ensure_ascii=False,
             indent=2,

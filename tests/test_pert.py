@@ -2,7 +2,7 @@
 
 import json
 
-from boardgraph.pert import calibrate, render_markdown, schedule
+from boardgraph.pert import calibrate, reality_scenario, render_markdown, schedule
 
 
 def _node(key, start="2026-01-01", end=None, likely=None):
@@ -495,3 +495,60 @@ def test_cli_render_style_critical_gera_artefatos(tmp_path):
     assert "classDef crit" in text
     assert "class n_repo_1 crit;" in text
     assert "n_repo_1 ==> n_repo_2" in text
+
+
+def test_divergencias_separam_atraso_e_folga_no_plano():
+    late = _node("o/r#1", start="2026-01-01", end="2026-01-02", likely=5)    # plano 2d, cálculo 5d
+    comfy = _node("o/r#2", start="2026-01-01", end="2026-01-10", likely=3)  # plano 10d, cálculo 3d
+    board = {"nodes": [late, comfy], "generatedAt": "x", "detail": "parents", "teams": None}
+    result = schedule(board, _graph())
+    empty = {"reality_factor": None, "sample": [], "skipped": [], "warnings": []}
+
+    md = render_markdown(board, result, empty)
+
+    assert "## Divergências entre plano e cálculo" in md
+    assert "−3d" in md   # termina depois do planejado
+    assert "+7d" in md   # folga no próprio plano
+    assert "ficam de fora" in md
+
+
+def test_cenario_realidade_escala_as_estimativas():
+    node = _node("o/r#1", start="2026-01-01")
+    node.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+    board = {"nodes": [node]}
+
+    scenario = reality_scenario(board, _graph(), 2.0)
+
+    assert scenario["tasks"][0]["te"] == 6.0
+    assert scenario["finish"] == "2026-01-06"
+    assert reality_scenario(board, _graph(), None) is None
+
+
+def test_cenario_aparece_no_md_e_no_json(tmp_path):
+    from boardgraph.cli import main
+
+    def value(name, v):
+        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
+
+    item = {
+        "id": "i1",
+        "content": {
+            "__typename": "Issue", "number": 1, "title": "t1", "state": "OPEN",
+            "repository": {"nameWithOwner": "org/repo"},
+        },
+        "fieldValues": {"nodes": [
+            value("Start date", "2026-01-01"), value("Target date", "2026-01-05"),
+            value("Otimista (dias)", 1), value("Mais provável (dias)", 3),
+            value("Pessimista (dias)", 5),
+        ]},
+    }
+    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item]}
+    src = tmp_path / "latest.json"
+    src.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "2026-02-28"])
+
+    assert code == 0
+    data = json.loads((tmp_path / "pert.json").read_text(encoding="utf-8"))
+    assert "scenario" in data
+    assert data["scenario"]["factor"] is None   # sem tarefas concluídas, sem cenário

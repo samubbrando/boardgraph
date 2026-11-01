@@ -231,7 +231,7 @@ Regra de camadas: **módulo puro não importa I/O; só o `cli` compõe I/O**.
 | `boardgraph/pert.py` | PERT/CPM puro por componente: passe com `te` (fallback: mais provável → janela), ES/EF/LS/LF, folga, crítico (= menor folga), `sigma_path` pela variância do caminho mais longo e probabilidades por tarefa/milestone/projeto (normal, componentes independentes). `calibrate` mede o fator de realidade (mediana de real/planejado nas `Done`); `render_markdown` formata o `pert.md`. `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma + probabilidades |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos (`fetch`/`probe`/`model`/`render`/`schedule`/`fields`), escrita de artefatos e chamada de `dot -Tsvg|pdf`. `render --style critical` roda o `schedule` internamente e passa o conjunto crítico aos emissores. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 97 testes offline, rodados com pytest. | — |
+| `tests/` | 102 testes offline, rodados com pytest. | — |
 
 ## 5. Decisões e evidência
 
@@ -517,23 +517,23 @@ isolados. Zero milestones misturam times.
 
 ## 8. Estado da suíte de testes
 
-97 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
+102 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
 
 ```bash
 uv run --group dev python3 -m pytest tests/ -q
 ```
 
-Resultado em 2026-11-01: `97 passed`.
+Resultado em 2026-11-01: `102 passed`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
 | `tests/test_fetch.py` | 6 | Query contém `ProjectV2ItemIssueFieldValue`/`IssueFieldDateValue`; toggles de `blockedBy` e `body`; normalização de `--filter -status:Done`; resumo marca `DEGRADED`. |
 | `tests/test_probe.py` | 5 | Board completo sem aviso; falta de `Start date` obrigatória gera aviso; campo opcional esparso não gera; `body` não coletado não é erro; milestone contada por repositório (mesmo número em repos diferentes). |
 | `tests/test_model.py` | 14 | Colapso: filha absorvida, união de janela, blocker de filha re-apontado, blocker irmão descartado, pai fora do board não colapsa. `children` mantém nós; `all` inclui PR. `items` não é mutado; `detail`+`team` compõem; janela de milestone recalculada no subconjunto. Normalização dos campos PERT (`optimistic`/`likely`/`pessimistic`/`deadline`). |
-| `tests/test_graph.py` | 13 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Lint Mermaid. |
+| `tests/test_graph.py` | 17 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Lint Mermaid. |
 | `tests/test_team.py` | 13 | Herança de time pela cadeia de pai; sem time permanece `None`; seleção; externo mantém time de origem; fora do board marcado; blocker interno não é externo; múltiplos times; `(sem time)` nunca descartado; time inexistente avisa; time sem dependência avisa; arestas só tocam nós mantidos. |
 | `tests/test_pertfields.py` | 9 | Semente em dias inclusivos; tarefa de um dia; sem datas não semeia; `Target` antes de `Start` não semeia; valor humano nunca sobrescrito; PR/draft ficam de fora; campos a criar; resumo do dry-run; fumaça do `cli fields --execute` com client falso (4 criações + 3 escritas). |
-| `tests/test_pert.py` | 30 | Redes conferidas à mão: cadeia simples (ES/EF/LS/LF), cadeias paralelas com folga, isolado sem folga finita, fallback para janela, duração zero, dependência externa, `deadline` folgado/impossível, ciclo excluído. PERT: TE/σ, datas por TE, probabilidade de tarefa/milestone/projeto, degenerada sem O/M/P, estimativa invertida, TE fracionário (convenção de datas). Calibração (mediana real/planejado). Contratos: shape da tarefa/do resultado, herança de `team`, `milestone` como dict, âncora de fallback, milestone com âncoras distintas. |
+| `tests/test_pert.py` | 38 | Redes conferidas à mão: cadeia simples (ES/EF/LS/LF), cadeias paralelas com folga, isolado sem folga finita, fallback para janela, duração zero, dependência externa, `deadline` folgado/impossível, ciclo excluído. PERT: TE/σ, datas por TE, probabilidade de tarefa/milestone/projeto, degenerada sem O/M/P, estimativa invertida, TE fracionário (convenção de datas). Calibração (mediana real/planejado). Contratos: shape da tarefa/do resultado, herança de `team`, `milestone` como dict, âncora de fallback, milestone com âncoras distintas, invariância do conjunto crítico × prazo. Saídas: `render_markdown` (tabelas, divergências, ∞/★), cenário do fator de realidade, smoke do `schedule` e do `render --style critical` na CLI. |
 
 Os testes das fases 1–7 são estilo `unittest.TestCase` e os da Fase 8 são
 funções pytest; o pytest coleta os dois. Lacunas reconhecidas: temas do
