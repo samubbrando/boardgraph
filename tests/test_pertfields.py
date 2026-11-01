@@ -91,3 +91,34 @@ def test_dryrun_mostra_resumo():
 
     assert "O" in out and "NUMBER" in out
     assert "org/repo#1" in out and "semeadura" in out
+
+
+def test_cli_execute_dispara_criacao_e_semeadura(monkeypatch, tmp_path):
+    """Fumaça do fio de `cli` até o client: 4 criações + 3 escritas por item."""
+    import json
+
+    from boardgraph.cli import main
+
+    item = _item(1, [_value("Start date", "2026-10-05"), _value("Target date", "2026-10-07")])
+    src = tmp_path / "latest.json"
+    src.write_text(json.dumps(_payload(item)), encoding="utf-8")
+
+    calls: list[dict] = []
+
+    class FakeClient:
+        def execute(self, query, variables=None):
+            calls.append(variables)
+            if "createProjectV2Field" in query:
+                return {"createProjectV2Field": {
+                    "projectV2Field": {"id": "f1", "dataType": variables["dataType"]}
+                }}
+            return {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "x"}}}
+
+    monkeypatch.setattr("boardgraph.cli.GraphQLClient", FakeClient)
+
+    code = main(["fields", "--input", str(src), "--out", str(tmp_path), "--execute"])
+
+    assert code == 0
+    assert len(calls) == 7
+    assert [c["name"] for c in calls[:4]] == ["O", "M", "P", "Prazo"]
+    assert [c["value"] for c in calls[4:]] == [{"number": 2.1}, {"number": 3.0}, {"number": 4.8}]

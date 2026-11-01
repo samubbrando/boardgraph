@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .auth import AuthError
-from .client import GraphQLError
+from .client import GraphQLError, GraphQLClient
 from .fetch import FetchConfig, fetch_board, save, summarize
 from .graph import build_graph, render_terminal as render_graph
 from .model import build_board, filter_detail, finalize, render_terminal

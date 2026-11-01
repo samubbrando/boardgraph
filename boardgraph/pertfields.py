@@ -25,7 +25,7 @@ SEED_FACTORS = {"O": 0.7, "M": 1.0, "P": 1.6}
 SEED_FIELDS = tuple(SEED_FACTORS)
 
 CREATE_FIELD = """
-mutation($projectId: ID!, $name: String!, $dataType: ProjectV2FieldType!) {
+mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
   createProjectV2Field(input: {projectId: $projectId, name: $name, dataType: $dataType}) {
     projectV2Field { ... on ProjectV2FieldCommon { id name dataType } }
   }
