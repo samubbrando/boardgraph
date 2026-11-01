@@ -334,9 +334,11 @@ campo de board: é `--deadline`/config.
 ### Limitações declaradas
 
 - CPM ignora contenção de recursos: 13 pessoas/3 frentes não entram na conta.
-- Nós isolados têm folga infinita; o caminho crítico é o do maior componente.
-- `closedAt − start` inclui ociosidade → fator de realidade tende a otimismo.
-- Tarefa sem estimativa cai para `M = Target − Start + 1` com aviso.
+- Nós isolados têm `slack=None`; cada componente tem o seu caminho crítico.
+- `closedAt − start` inclui ociosidade → o fator de realidade pode estar
+  inflado por espera, não por trabalho.
+- Duração do passe é o TE; sem O/M/P cai para `M`, depois para a janela
+  (`Target − Start + 1`), e `sigma` fica 0 (probabilidade degenerada).
 
 ### Fora de escopo
 

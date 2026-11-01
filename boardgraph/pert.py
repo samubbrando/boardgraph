@@ -24,7 +24,15 @@ Contratos:
   com prazo folgado todos têm folga positiva e ainda há caminho crítico.
 - `Prazo` por tarefa não entra no cálculo do CPM; é alvo de comparação.
 - Variância segue o caminho mais longo até a tarefa (`sigma_path`); a
-  probabilidade assume normal e componentes independentes entre si.
+  probabilidade assume normal, dominância do caminho mais longo e
+  componentes independentes entre si.
+- Datas de exibição arredondam para fora (`floor`/`ceil`); com TE fracionário,
+  tarefas encadeadas podem compartilhar o dia de fronteira — os offsets
+  `es/ef/ls/lf` guardam a precisão real.
+- Probabilidade: tarefa só contra o próprio `Prazo`; milestone contra `due_on`
+  ou `max(Prazo)` dos membros; projeto contra o `deadline` global, como
+  produto dos componentes. `probability: null` = sem prazo; `0` ou `1` =
+  degenerada (σ = 0).
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
     zero: list[str] = []
     window: list[str] = []
     no_estimate: list[str] = []
+    inverted: list[str] = []
     for node in nodes:
         if node["key"] in cycled:
             continue
@@ -70,13 +79,20 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
             window.append(node["key"])
         if sigma == 0 and node.get("deadline"):
             no_estimate.append(node["key"])
+        o, p = node.get("optimistic"), node.get("pessimistic")
+        if o is not None and p is not None and p < o:
+            inverted.append(node["key"])
     if zero:
         warnings.append(f"{len(zero)} tarefa(s) sem janela completa nem estimativa: {', '.join(sorted(zero))}")
     if window:
         warnings.append(f"{len(window)} tarefa(s) usando a janela como duração: {', '.join(sorted(window))}")
     if no_estimate:
         warnings.append(
-            f"{len(no_estimate)} tarefa(s) com Prazo e sem O/M/P: probabilidade degenerada"
+            f"{len(no_estimate)} tarefa(s) com Prazo e sem desvio (σ = 0): probabilidade degenerada"
+        )
+    if inverted:
+        warnings.append(
+            f"{len(inverted)} tarefa(s) com Pessimista < Otimista: σ = 0 e aviso de estimativa invertida"
         )
 
     edges = [
@@ -123,13 +139,13 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
         floor = min(finite, default=0.0)
         critical = {k for k, v in slacks.items() if v is not None and abs(v - floor) < EPS}
         path = _critical_path(comp, pred, succ, ef, critical)
-        terminals = [k for k in comp if not succ[k]] or comp
+        terminals = [k for k in comp if not succ[k]]
         head = max(terminals, key=lambda k: (ef[k], k))
 
         sigma_head = math.sqrt(var[head])
         comp_proba = None
         if deadline_date and anchor is not None:
-            comp_proba = _z_probability((deadline_date - anchor).days - ef[head], sigma_head)
+            comp_proba = _z_probability(_margin(to_iso(anchor), ef[head], deadline_date), sigma_head)
 
         for key in comp:
             node = by_key[key]
@@ -171,7 +187,6 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
         components.append({
             "index": index,
             "anchor": to_iso(anchor),
-            "finish": _date_at(anchor, max(ef.values()), end=True),
             "task_count": len(comp),
             "critical_path": path,
             "expected_finish": _date_at(anchor, ef[head], end=True),
@@ -226,9 +241,9 @@ def calibrate(board: dict) -> dict:
     samples.sort(key=lambda s: s["key"])
     ratios = [s["ratio"] for s in samples]
     return {
-        "fator_realidade": statistics.median(ratios) if ratios else None,
-        "amostra": samples,
-        "ignoradas": sorted(k for k in skipped if k),
+        "reality_factor": statistics.median(ratios) if ratios else None,
+        "sample": samples,
+        "skipped": sorted(k for k in skipped if k),
         "warnings": [] if samples else ["nenhuma tarefa concluída com Start/Target/closedAt"],
     }
 
@@ -311,7 +326,7 @@ def _backward(order: list[str], succ: dict, tes: dict[str, float], limit: float)
 def _limit(anchor: date | None, comp_end: float, deadline: date | None) -> float:
     if deadline is None or anchor is None:
         return comp_end
-    return float((deadline - anchor).days)
+    return (deadline - anchor).days
 
 
 def _critical_path(comp: list[str], pred: dict, succ: dict, ef: dict, critical: set[str]) -> list[str]:
@@ -327,10 +342,12 @@ def _critical_path(comp: list[str], pred: dict, succ: dict, ef: dict, critical: 
     return list(reversed(path))
 
 
-def _probability(task: dict, deadline: object) -> float:
-    d = to_date(deadline)
-    margin = (d - to_date(task["anchor"])).days - task["ef"]
-    return _z_probability(margin, task["sigma_path"])
+def _probability(task: dict, deadline: str | date) -> float:
+    return _z_probability(_margin(task["anchor"], task["ef"], deadline), task["sigma_path"])
+
+
+def _margin(anchor: str | None, ef: float, deadline: str | date) -> float:
+    return (to_date(deadline) - to_date(anchor)).days - ef
 
 
 def _z_probability(margin: float, sigma_path: float) -> float:
@@ -349,7 +366,7 @@ def _milestone_probabilities(tasks: list[dict]) -> list[dict]:
 
     out = []
     for (repo, number), members in sorted(groups.items()):
-        head = max(members, key=lambda t: (t["ef"], t["key"]))
+        head = max(members, key=lambda t: (t["finish"] or "", t["key"]))
         due = head["milestone"].get("due_on")
         deadline = due or max((m["deadline"] for m in members if m["deadline"]), default=None)
         out.append({
@@ -370,10 +387,12 @@ def _project_probability(components: list[dict], deadline: date | None) -> dict 
     """Componentes são independentes: P(projeto ≤ prazo) é o produto."""
     if deadline is None or not components:
         return None
+    probas = [c["probability"] for c in components if c["probability"] is not None]
+    finishes = [c["expected_finish"] for c in components if c["expected_finish"]]
     return {
         "deadline": deadline.isoformat(),
-        "expected_finish": max(c["expected_finish"] for c in components),
-        "probability": math.prod(c["probability"] for c in components),
+        "expected_finish": max(finishes, default=None),
+        "probability": math.prod(probas) if probas else None,
     }
 
 

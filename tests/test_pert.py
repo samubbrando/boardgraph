@@ -1,4 +1,4 @@
-"""CPM em redes pequenas conferidas à mão."""
+"""PERT/CPM em redes pequenas conferidas à mão."""
 
 from boardgraph.pert import calibrate, schedule
 
@@ -273,7 +273,7 @@ def test_probabilidade_degenerada_sem_o_m_p():
     task = result["tasks"][0]
 
     assert task["probability"] == 1.0
-    assert any("sem O/M/P" in w for w in result["warnings"])
+    assert any("sem desvio" in w for w in result["warnings"])
 
 
 def test_calibracao_mediana_do_real_sobre_planejado():
@@ -289,13 +289,94 @@ def test_calibracao_mediana_do_real_sobre_planejado():
     ]
     result = calibrate({"items": items})
 
-    assert result["fator_realidade"] == 1.0
-    assert len(result["amostra"]) == 3
-    assert result["ignoradas"] == ["o/r#4"]
+    assert result["reality_factor"] == 1.0
+    assert len(result["sample"]) == 3
+    assert result["skipped"] == ["o/r#4"]
 
 
 def test_calibracao_sem_amostra_avisa():
     result = calibrate({"items": [{"key": "o/r#1", "type": "issue"}]})
 
-    assert result["fator_realidade"] is None
+    assert result["reality_factor"] is None
     assert any("nenhuma tarefa" in w for w in result["warnings"])
+
+
+def test_milestone_com_ancoras_diferentes_usa_fim_absoluto():
+    def est(key, start):
+        n = _node(key, start=start)
+        n.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+        n["milestone"] = {"repo": "o/r", "number": 3, "title": "M3", "due_on": None}
+        return n
+
+    early = est("o/r#1", "2026-01-01")   # fim 01-03
+    late = est("o/r#2", "2026-01-20")    # fim 01-22
+    result = schedule({"nodes": [early, late]}, _graph())
+    ms = result["probabilities"]["milestones"][0]
+
+    assert ms["expected_finish"] == "2026-01-22"
+
+
+def test_projeto_nao_quebra_sem_ancora_nenhuma():
+    def est(key):
+        n = _node(key, start=None)
+        n.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+        return n
+
+    result = schedule({"nodes": [est("o/r#1"), est("o/r#2")]}, _graph(), deadline="2026-01-31")
+    project = result["probabilities"]["project"]
+
+    assert project["probability"] is None
+    assert project["expected_finish"] is None
+
+
+def test_ancora_de_fallback_alinha_componentes_sem_data():
+    anchored = _node("o/r#1", start="2026-01-01")
+    anchored.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+    anchorless = _node("o/r#2", start=None)
+    anchorless.update({"optimistic": 1, "likely": 3, "pessimistic": 5})
+
+    result = schedule({"nodes": [anchored, anchorless]}, _graph(), deadline="2026-01-04")
+    project = result["probabilities"]["project"]
+
+    # sem âncora própria, o componente herda a menor data do board: 0.9332²
+    assert round(project["probability"], 4) == 0.8708
+
+
+def test_te_fracionario_compartilha_dia_de_fronteira():
+    def est(key):
+        n = _node(key, start="2026-01-01")
+        n.update({"optimistic": 3.0, "likely": 5.0, "pessimistic": 8.0})  # te = 31/6
+        return n
+
+    result = schedule({"nodes": [est("o/r#1"), est("o/r#2")]}, _graph(("o/r#1", "o/r#2")))
+    tasks = _by_key(result)
+
+    # convenção: datas arredondam para fora; offsets es/ef guardam a precisão
+    assert (tasks["o/r#1"]["start"], tasks["o/r#1"]["finish"]) == ("2026-01-01", "2026-01-06")
+    assert (tasks["o/r#2"]["start"], tasks["o/r#2"]["finish"]) == ("2026-01-06", "2026-01-11")
+    assert round(tasks["o/r#2"]["es"], 4) == 5.1667
+
+
+def test_estimativa_invertida_gera_aviso_e_sigma_zero():
+    node = _node("o/r#1", start="2026-01-01")
+    node.update({"optimistic": 5, "likely": 3, "pessimistic": 1})
+    result = schedule({"nodes": [node]}, _graph())
+    task = result["tasks"][0]
+
+    assert task["sigma"] == 0.0
+    assert any("invertida" in w for w in result["warnings"])
+
+
+def test_contrato_do_resultado():
+    result = schedule({"nodes": [_node("o/r#1", likely=1)]}, _graph())
+
+    assert set(result) == {
+        "deadline", "finish", "tasks", "critical", "components",
+        "probabilities", "warnings",
+    }
+    assert set(result["probabilities"]) == {"project", "milestones"}
+    component = result["components"][0]
+    assert set(component) == {
+        "index", "anchor", "task_count", "critical_path",
+        "expected_finish", "sigma_path", "probability",
+    }

@@ -231,7 +231,7 @@ Regra de camadas: **módulo puro não importa I/O; só o `cli` compõe I/O**.
 | `boardgraph/pert.py` | PERT/CPM puro por componente: passe com `te` (fallback: mais provável → janela), ES/EF/LS/LF, folga, crítico (= menor folga), `sigma_path` pela variância do caminho mais longo e probabilidades por tarefa/milestone/projeto (normal, componentes independentes). `calibrate` mede o fator de realidade (mediana de real/planejado nas `Done`). `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma + probabilidades |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 71 testes offline, rodados com pytest. | — |
+| `tests/` | 90 testes offline, rodados com pytest. | — |
 
 ## 5. Decisões e evidência
 
@@ -335,6 +335,28 @@ ids de nó ganharam anti-colisão também no Graphviz. O ramo `external` de
 validado no board real: `updated:>=2026-10-20` → 29 itens, `status:Done` → 19,
 `-status:Done` → 26, `team:Back` → 13. O filtro reduz payload, mas muda o
 snapshot: use-o para recortes, não para o `board.json` canônico.
+
+### 5.10 Probabilidade: fontes de prazo e aproximações
+
+`P(fim ≤ prazo) = Φ((prazo − fim esperado) / σ_caminho)`, com `math.erf`. As
+fontes de prazo, por nível:
+
+| Nível | Prazo usado | Observação |
+|---|---|---|
+| tarefa | `Prazo` do próprio nó | sem `Prazo`, `probability: null` — o deadline global **não** vira probabilidade por tarefa |
+| milestone | `dueOn`; sem ele, `max(Prazo)` dos membros | `source` registra qual dos dois |
+| projeto | `--deadline` global | produto das probabilidades dos componentes (independentes) |
+
+`probability: null` = sem prazo; `0` ou `1` = degenerada (σ = 0). Aproximações
+clássicas assumidas — citáveis na defesa: dominância do caminho mais longo (a
+variância do `max` entre ramos paralelos é ignorada), o head do milestone é a
+tarefa de fim esperado mais tardio (não o `max` dos membros), normal com massa
+em duração negativa desprezada, e componentes independentes (falso se
+compartilham pessoas — contenção de recursos está fora do cálculo).
+
+Datas de exibição arredondam para fora (`floor`/`ceil`); com TE fracionário,
+tarefas encadeadas podem compartilhar o dia de fronteira. `es/ef/ls/lf` são os
+offsets exatos e devem ser o que a tabela do PERT mostra.
 
 ## 6. Armadilhas conhecidas
 
@@ -474,13 +496,13 @@ isolados. Zero milestones misturam times.
 
 ## 8. Estado da suíte de testes
 
-71 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
+90 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
 
 ```bash
 uv run --group dev python3 -m pytest tests/ -q
 ```
 
-Resultado em 2026-11-01: `71 passed`.
+Resultado em 2026-11-01: `90 passed`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
@@ -490,7 +512,7 @@ Resultado em 2026-11-01: `71 passed`.
 | `tests/test_graph.py` | 13 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Lint Mermaid. |
 | `tests/test_team.py` | 13 | Herança de time pela cadeia de pai; sem time permanece `None`; seleção; externo mantém time de origem; fora do board marcado; blocker interno não é externo; múltiplos times; `(sem time)` nunca descartado; time inexistente avisa; time sem dependência avisa; arestas só tocam nós mantidos. |
 | `tests/test_pertfields.py` | 9 | Semente em dias inclusivos; tarefa de um dia; sem datas não semeia; `Target` antes de `Start` não semeia; valor humano nunca sobrescrito; PR/draft ficam de fora; campos a criar; resumo do dry-run; fumaça do `cli fields --execute` com client falso (4 criações + 3 escritas). |
-| `tests/test_pert.py` | 11 | Redes conferidas à mão: cadeia simples (ES/EF/LS/LF), duas cadeias paralelas com folga, isolado sem folga finita, fallback para janela, duração zero, dependência externa ignorada, `deadline` folgado e impossível, nó em ciclo excluído. Contratos: herança de `team`, `milestone` como dict. |
+| `tests/test_pert.py` | 30 | Redes conferidas à mão: cadeia simples (ES/EF/LS/LF), cadeias paralelas com folga, isolado sem folga finita, fallback para janela, duração zero, dependência externa, `deadline` folgado/impossível, ciclo excluído. PERT: TE/σ, datas por TE, probabilidade de tarefa/milestone/projeto, degenerada sem O/M/P, estimativa invertida, TE fracionário (convenção de datas). Calibração (mediana real/planejado). Contratos: shape da tarefa/do resultado, herança de `team`, `milestone` como dict, âncora de fallback, milestone com âncoras distintas. |
 
 Os testes das fases 1–7 são estilo `unittest.TestCase` e os da Fase 8 são
 funções pytest; o pytest coleta os dois. Lacunas reconhecidas: temas do
