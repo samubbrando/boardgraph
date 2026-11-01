@@ -31,7 +31,10 @@ CLASS_DEFS = {
 }
 
 
-def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str:
+def render_mermaid(
+    board: dict, graph: dict, group_by: str = "milestone", critical: set[str] | None = None
+) -> str:
+    critical = critical or set()
     teams_map = resolve_teams(board) if group_by == "team" else {}
     node_id = node_ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
 
@@ -59,6 +62,8 @@ def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str
         if not src or not dst:
             continue
         arrow = "-.->" if edge["kind"] == "hierarchy" else "-->"
+        if edge["from"] in critical and edge["to"] in critical:
+            arrow = "==>"
         lines.append(f"  {src} {arrow} {dst}")
 
     for node in graph["nodes"]:
@@ -67,6 +72,12 @@ def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str
 
     for name, style in CLASS_DEFS.items():
         lines.append(f"  classDef {name} {style}")
+
+    if critical:
+        lines.append("  classDef crit stroke:#dc2626,stroke-width:3px")
+        for node in graph["nodes"]:
+            if node["key"] in critical:
+                lines.append(f"  class {node_id[node['key']]} crit;")
 
     return "\n".join(lines) + "\n"
 

@@ -44,7 +44,14 @@ THEMES = {
 STATUS_KEY = {"Todo": "todo", "In progress": "doing", "In Progress": "doing", "Done": "done"}
 
 
-def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str = "light") -> str:
+def render_dot(
+    board: dict,
+    graph: dict,
+    group_by: str = "milestone",
+    theme: str = "light",
+    critical: set[str] | None = None,
+) -> str:
+    critical = critical or set()
     t = THEMES[theme]
     teams_map = resolve_teams(board) if group_by == "team" else {}
     ids = node_ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
@@ -61,7 +68,7 @@ def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str
         out.append(f'    label="{_esc(group_label(group, nodes))}";')
         out.append(f'    labeljust="l"; style="rounded,dashed"; color="{t["cluster_border"]}"; fontcolor="{t["cluster_font"]}"; fontsize=11;')
         for node in sorted(nodes, key=lambda n: n["key"]):
-            out.append(f"    {ids[node['key']]} [{_attrs(node, t)}];")
+            out.append(f"    {ids[node['key']]} [{_attrs(node, t, node['key'] in critical)}];")
         out.append("  }")
 
     if graph["ghosts"]:
@@ -80,7 +87,10 @@ def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str
         src, dst = ids.get(edge["from"]), ids.get(edge["to"])
         if not src or not dst:
             continue
-        style = 'style="dashed"' if edge["kind"] == "hierarchy" else f'color="{t["edge"]}"'
+        if edge["from"] in critical and edge["to"] in critical:
+            style = 'color="#dc2626", penwidth=2'
+        else:
+            style = 'style="dashed"' if edge["kind"] == "hierarchy" else f'color="{t["edge"]}"'
         out.append(f"  {src} -> {dst} [{style}, arrowsize=0.7];")
 
     out.append("}")
@@ -105,13 +115,16 @@ def _graph_attrs(t: dict) -> str:
     )
 
 
-def _attrs(node: dict, t: dict) -> str:
+def _attrs(node: dict, t: dict, critical: bool = False) -> str:
     key = STATUS_KEY.get(node.get("status") or "", "todo")
     fill, border, font = t[key]
     style = '"rounded,filled' + (",dashed" if key == "todo" else "") + '"'
+    penwidth = ", penwidth=2.6" if critical else ""
+    if critical:
+        border = "#dc2626"
     return (
         f'label="{_esc(_node_label(node))}", fillcolor="{fill}", color="{border}", '
-        f'fontcolor="{font}", style={style}{_url(node)}'
+        f'fontcolor="{font}", style={style}{penwidth}{_url(node)}'
     )
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .auth import AuthError
 from .client import GraphQLError, GraphQLClient
+from .fields import to_date
 from .fetch import FetchConfig, fetch_board, save, summarize
 from .graph import build_graph, render_terminal as render_graph
 from .model import build_board, filter_detail, finalize, render_terminal
@@ -24,6 +25,8 @@ from .pertfields import (
     plan_seed,
     render_dryrun,
 )
+from .pert import calibrate as pert_calibrate
+from .pert import render_markdown, schedule as pert_schedule
 from .probe import build_report, write
 from .probe import render_terminal as render_probe
 
@@ -66,7 +69,17 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--group-by", choices=["milestone", "team"], default="milestone")
     render.add_argument("--format", choices=["mmd", "dot", "svg", "pdf"], default="mmd")
     render.add_argument("--theme", choices=["light", "dark"], default="light")
+    render.add_argument("--style", choices=["normal", "critical"], default="normal",
+                        help="destaca o caminho crítico (vermelho)")
     render.add_argument("--print", action="store_true", help="imprime o Mermaid no terminal")
+
+    sched = sub.add_parser("schedule", help="PERT/CPM: pert.md + pert.json (offline)")
+    sched.add_argument("--out", type=Path, default=Path("out"), help="diretório de saída")
+    sched.add_argument("--input", type=Path, help="payload alternativo (padrão: out/raw/latest.json)")
+    sched.add_argument("--detail", choices=["parents", "children", "all"], default="parents")
+    sched.add_argument("--team", action="append", help="recorta por time (repetível)")
+    sched.add_argument("--deadline", help="prazo global do projeto (AAAA-MM-DD)")
+    sched.add_argument("--json", action="store_true", help="imprime o cronograma em JSON")
 
     fields = sub.add_parser(
         "fields",
@@ -113,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_render(args)
         if args.command == "fields":
             return _cmd_fields(args)
+        if args.command == "schedule":
+            return _cmd_schedule(args)
     except AuthError as exc:
         print(f"erro de autenticação: {exc}", file=sys.stderr)
         return 2
@@ -182,7 +197,13 @@ def _cmd_render(args: argparse.Namespace) -> int:
     board = _apply_filters(payload, args.detail, args.team)
     graph = build_graph(board)
 
+    critical: set[str] = set()
+    if args.style == "critical":
+        critical = set(pert_schedule(board, graph)["critical"])
+
     label = _stem_label(args.detail, args.team, args.group_by)
+    if critical:
+        label += "-critical"
     stem = args.out / f"graph-{label}"
     edges_path = args.out / f"edges-{label}.json"
     edges_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,8 +231,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
     for warning in board["warnings"]:
         print(f"          aviso: {warning}")
 
-    mermaid = render_mermaid(board, graph, args.group_by)
-    dot_src = render_dot(board, graph, args.group_by, args.theme)
+    mermaid = render_mermaid(board, graph, args.group_by, critical or None)
+    dot_src = render_dot(board, graph, args.group_by, args.theme, critical or None)
 
     for line in _emit(mermaid=mermaid, dot=dot_src, stem=stem, fmt=args.format):
         print(f"          {line}")
@@ -261,6 +282,53 @@ def _cmd_model(args: argparse.Namespace) -> int:
     else:
         print(render_terminal(board))
         print(f"\n  {path}")
+    return 0
+
+
+def _cmd_schedule(args: argparse.Namespace) -> int:
+    source = args.input or (args.out / "raw" / "latest.json")
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if args.deadline and not to_date(args.deadline):
+        raise RuntimeError(f"deadline inválido: {args.deadline!r}")
+
+    board = _apply_filters(payload, args.detail, args.team)
+    graph = build_graph(board)
+    result = pert_schedule(board, graph, deadline=args.deadline)
+    calibration = pert_calibrate(board)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    md_path = args.out / "pert.md"
+    json_path = args.out / "pert.json"
+    md_path.write_text(render_markdown(board, result, calibration), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(
+            {
+                "generatedAt": board.get("generatedAt"),
+                "detail": board.get("detail"),
+                "teams": board.get("teams"),
+                "schedule": result,
+                "calibration": calibration,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        project = result["probabilities"]["project"]
+        print(
+            f"schedule · fim {result['finish']} · {len(result['critical'])} críticas"
+            f" · {len(result['components'])} componentes"
+        )
+        if project:
+            print(f"          P(projeto ≤ {project['deadline']}) = {project['probability']:.3f}")
+        for warning in result["warnings"]:
+            print(f"          aviso: {warning}")
+        print(f"          {md_path}")
+        print(f"          {json_path}")
     return 0
 
 

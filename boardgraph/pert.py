@@ -248,6 +248,136 @@ def calibrate(board: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------- apresentação
+
+
+def render_markdown(board: dict, result: dict, calibration: dict) -> str:
+    """Tabela de entrega do PERT/CPM em Markdown."""
+    probs = result["probabilities"]
+    lines = [
+        "# PERT/CPM",
+        "",
+        _meta_line(board, result),
+        "",
+        f"- fim esperado do cronograma: **{result['finish'] or '—'}**",
+    ]
+    project = probs["project"]
+    if project:
+        lines.append(
+            f"- P(projeto ≤ {project['deadline']}) = **{_pct(project['probability'])}**"
+        )
+    lines.append("")
+
+    if probs["milestones"]:
+        lines += [
+            "## Probabilidade por milestone",
+            "",
+            "| milestone | tarefas | prazo | origem | fim esperado | σ | P(≤ prazo) |",
+            "|---|---:|---|---|---|---:|---:|",
+        ]
+        for ms in probs["milestones"]:
+            label = ms["title"] or f"{ms['repo']}#{ms['number']}"
+            lines.append(
+                f"| {label} | {ms['tasks']} | {ms['deadline'] or '—'} "
+                f"| {ms['source'] or '—'} | {ms['expected_finish'] or '—'} "
+                f"| {ms['sigma_path']:.2f} | {_pct(ms['probability'])} |"
+            )
+        lines.append("")
+
+    lines += [
+        "## Tabela PERT (ES/EF/LS/LF em dias desde a âncora do componente)",
+        "",
+        "| tarefa | O | M | P | TE | σ | ES | EF | LS | LF | folga | crítica |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|",
+    ]
+    for t in sorted(result["tasks"], key=lambda t: (t["component"], t["es"], t["key"])):
+        late = "— | —" if t["slack"] is None else f"{t['ls']:g} | {t['lf']:g}"
+        lines.append(
+            f"| {_short(t['key'])} | {_num(t['optimistic'])} | {_num(t['likely'])} "
+            f"| {_num(t['pessimistic'])} | {t['te']:.2f} | {t['sigma']:.2f} "
+            f"| {t['es']:g} | {t['ef']:g} | {late} "
+            f"| {_slack(t['slack'])} | {'★' if t['critical'] else ''} |"
+        )
+    lines += [
+        "",
+        "folga = LS − ES (contra o prazo global, quando definido). Tarefa sem "
+        "restrição interna não tem folga finita nem LS/LF — é uma frente livre. "
+        "★ = menor folga do componente (caminho mais longo).",
+    ]
+    lines.append("")
+
+    lines += [
+        "## Calendário",
+        "",
+        "| tarefa | time | planejado | calculado | Prazo | P(≤ Prazo) |",
+        "|---|---|---|---|---|---:|",
+    ]
+    for t in sorted(result["tasks"], key=lambda t: (t["component"], t["es"], t["key"])):
+        lines.append(
+            f"| {_short(t['key'])} | {t['team']} "
+            f"| {_span(t['planned_start'], t['planned_end'])} "
+            f"| {_span(t['start'], t['finish'])} | {t['deadline'] or '—'} "
+            f"| {_pct(t['probability'])} |"
+        )
+    lines.append("")
+
+    factor = calibration["reality_factor"]
+    lines.append("## Calibração pelo realizado")
+    lines.append("")
+    if factor is None:
+        lines.append("sem tarefas concluídas com Start/Target/closedAt para calibrar.")
+    else:
+        lines += [
+            f"fator de realidade (mediana real/planejado): **{factor:.2f}** "
+            f"· n = {len(calibration['sample'])} · ignoradas: {len(calibration['skipped'])}",
+            "",
+            "| tarefa | planejado | real | ratio |",
+            "|---|---:|---:|---:|",
+        ]
+        for s in calibration["sample"]:
+            lines.append(
+                f"| {_short(s['key'])} | {s['planned_days']}d | {s['real_days']}d | {s['ratio']:.2f} |"
+            )
+    lines.append("")
+
+    warnings = list(result["warnings"]) + list(calibration["warnings"])
+    if warnings:
+        lines.append("## Observações")
+        lines.append("")
+        lines += [f"- {w}" for w in warnings]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _meta_line(board: dict, result: dict) -> str:
+    parts = [f"gerado em {board.get('generatedAt')}", f"recorte: {board.get('detail') or 'parents'}"]
+    if board.get("teams"):
+        parts.append("times: " + ", ".join(board["teams"]))
+    if result.get("deadline"):
+        parts.append(f"prazo global: {result['deadline']}")
+    return " · ".join(parts)
+
+
+def _short(key: str) -> str:
+    return key.rsplit("/", 1)[-1]
+
+
+def _num(value: float | None) -> str:
+    return f"{value:g}" if value is not None else "—"
+
+
+def _slack(value: float | None) -> str:
+    return f"{value:g}" if value is not None else "∞"
+
+
+def _pct(value: float | None) -> str:
+    return f"{value:.3f}" if value is not None else "—"
+
+
+def _span(start: str | None, end: str | None) -> str:
+    return f"{start}..{end}" if start and end else "—"
+
+
 # ------------------------------------------------------------------- cálculo
 
 

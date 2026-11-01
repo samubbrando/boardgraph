@@ -1,6 +1,6 @@
 """PERT/CPM em redes pequenas conferidas à mão."""
 
-from boardgraph.pert import calibrate, schedule
+from boardgraph.pert import calibrate, render_markdown, schedule
 
 
 def _node(key, start="2026-01-01", end=None, likely=None):
@@ -380,3 +380,73 @@ def test_contrato_do_resultado():
         "index", "anchor", "task_count", "critical_path",
         "expected_finish", "sigma_path", "probability",
     }
+
+
+def test_render_markdown_mostra_tabelas_e_simbolos():
+    node = _node("o/r#1", start="2026-01-01")
+    node.update({"optimistic": 1, "likely": 3, "pessimistic": 5, "deadline": "2026-01-04"})
+    board = {"nodes": [node], "generatedAt": "2026-01-01T00:00:00+00:00", "detail": "parents", "teams": None}
+    result = schedule(board, _graph())
+    calibration = {
+        "reality_factor": 1.5,
+        "sample": [{"key": "o/r#9", "planned_days": 2, "real_days": 3, "ratio": 1.5}],
+        "skipped": [],
+        "warnings": [],
+    }
+
+    md = render_markdown(board, result, calibration)
+
+    assert md.startswith("# PERT/CPM")
+    assert "## Tabela PERT" in md and "★" in md
+    assert "| r#1 |" in md
+    assert "0.933" in md
+    assert "∞" in md                      # nó sem restrição interna
+    assert "1.50" in md                   # fator de realidade
+
+
+def test_cli_schedule_grava_pert_md_e_json(tmp_path):
+    import json as jsonlib
+
+    from boardgraph.cli import main
+
+    def value(name, v):
+        return {"issueFieldValue": {"value": v, "field": {"name": name}}}
+
+    item = {
+        "id": "i1",
+        "content": {
+            "__typename": "Issue", "number": 1, "title": "t1", "state": "OPEN",
+            "repository": {"nameWithOwner": "org/repo"},
+        },
+        "fieldValues": {"nodes": [
+            value("Start date", "2026-01-01"), value("Target date", "2026-01-05"),
+            value("Otimista (dias)", 1), value("Mais provável (dias)", 3),
+            value("Pessimista (dias)", 5),
+        ]},
+    }
+    payload = {"project": {"id": "PVT_1", "title": "B"}, "fields": [], "items": [item]}
+    src = tmp_path / "latest.json"
+    src.write_text(jsonlib.dumps(payload), encoding="utf-8")
+
+    code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "2026-01-31"])
+
+    assert code == 0
+    md = (tmp_path / "pert.md").read_text(encoding="utf-8")
+    data = jsonlib.loads((tmp_path / "pert.json").read_text(encoding="utf-8"))
+    assert md.startswith("# PERT/CPM")
+    assert data["schedule"]["deadline"] == "2026-01-31"
+    assert "reality_factor" in data["calibration"]
+    assert len(data["schedule"]["tasks"]) == 1
+
+
+def test_cli_schedule_rejeita_deadline_invalido(tmp_path):
+    import json as jsonlib
+
+    from boardgraph.cli import main
+
+    src = tmp_path / "latest.json"
+    src.write_text(jsonlib.dumps({"project": {"id": "P"}, "fields": [], "items": []}), encoding="utf-8")
+
+    code = main(["schedule", "--input", str(src), "--out", str(tmp_path), "--deadline", "31/01/2026"])
+
+    assert code == 1

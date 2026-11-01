@@ -228,10 +228,10 @@ Regra de camadas: **módulo puro não importa I/O; só o `cli` compõe I/O**.
 | `boardgraph/render.py` | Emissor Mermaid. `render_mermaid` agrupa por `group_by` (`milestone` ou `team`), desenha fantasmas, arestas sólidas/tracejadas, classes por `Status` e `click`. | `Board`/`graph` + `group_by` → texto `.mmd` |
 | `boardgraph/dot.py` | Emissor Graphviz. Temas `light`/`dark`, clusters por `group_by`, cores por `Status`, `URL=` para abrir a issue. | `Board`/`graph` + `group_by` → DOT |
 | `boardgraph/pertfields.py` | Criação e semeadura dos campos de estimativa (`Otimista`/`Mais provável`/`Pessimista`/`Prazo`). Dry-run por padrão; nunca sobrescreve valor humano; `Prazo` não recebe semente. Documentos GraphQL vivem em `queries.py`. | payload + client → campos criados / valores semeados |
-| `boardgraph/pert.py` | PERT/CPM puro por componente: passe com `te` (fallback: mais provável → janela), ES/EF/LS/LF, folga, crítico (= menor folga), `sigma_path` pela variância do caminho mais longo e probabilidades por tarefa/milestone/projeto (normal, componentes independentes). `calibrate` mede o fator de realidade (mediana de real/planejado nas `Done`). `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma + probabilidades |
-| `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
+| `boardgraph/pert.py` | PERT/CPM puro por componente: passe com `te` (fallback: mais provável → janela), ES/EF/LS/LF, folga, crítico (= menor folga), `sigma_path` pela variância do caminho mais longo e probabilidades por tarefa/milestone/projeto (normal, componentes independentes). `calibrate` mede o fator de realidade (mediana de real/planejado nas `Done`); `render_markdown` formata o `pert.md`. `milestone` é dict `(repo, number)`; `team` herda via `resolve_teams`. | `Board` + grafo (+ `deadline`) → cronograma + probabilidades |
+| `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos (`fetch`/`probe`/`model`/`render`/`schedule`/`fields`), escrita de artefatos e chamada de `dot -Tsvg|pdf`. `render --style critical` roda o `schedule` internamente e passa o conjunto crítico aos emissores. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 90 testes offline, rodados com pytest. | — |
+| `tests/` | 97 testes offline, rodados com pytest. | — |
 
 ## 5. Decisões e evidência
 
@@ -487,6 +487,9 @@ Saídas em `out/`:
 | `out/graph-<detail>.pdf` | `render --format pdf` | PDF via `dot` |
 | `out/graph-<detail>-by-team.pdf` | `render --group-by team` | um cluster por time |
 | `out/graph-<detail>-team-<time>.pdf` | `render --team …` | recorte por time |
+| `out/graph-<recorte>-critical.*` | `render --style critical` | caminho crítico em vermelho |
+| `out/pert.md` | `schedule` | tabela PERT/CPM de entrega |
+| `out/pert.json` | `schedule` | cronograma + calibração |
 
 Números atuais (board de referência, `parents`): 45 itens, 41 nós, 3
 absorvidos, 13 milestones, 34 arestas de dependência, 1 fantasma
@@ -496,13 +499,13 @@ isolados. Zero milestones misturam times.
 
 ## 8. Estado da suíte de testes
 
-90 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
+97 testes, todos offline, rodados com pytest (grupo `dev` do `pyproject`):
 
 ```bash
 uv run --group dev python3 -m pytest tests/ -q
 ```
 
-Resultado em 2026-11-01: `90 passed`.
+Resultado em 2026-11-01: `97 passed`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
