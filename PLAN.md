@@ -315,11 +315,11 @@ campo de board: é `--deadline`/config.
 
 ### Subfases
 
-1. **Campos e semeadura** — `boardgraph/pertfields.py` + subcomando
+1. **Campos e semeadura** ✔ 2026-11-01 — `boardgraph/pertfields.py` + subcomando
    `boardgraph fields`; dry-run lista campos e sementes sem mutar; execução
    cria os 4 campos e semeia as tarefas (~135 mutações; exige escopo de
    escrita de project no `gh`).
-2. **CPM** — `schedule(board, graph, deadline=None)`: passe direto (ES/EF),
+2. **CPM** ✔ 2026-11-01 — `boardgraph/pert.py`: passe direto (ES/EF),
    regressivo (LS/LF), folga = LS − ES, crítico = folga 0, por componente.
    Testes com rede pequena conferida à mão.
 3. **PERT + calibração** — `TE=(O+4M+P)/6`, `σ=(P−O)/6`, `σ_caminho=√Σσ²`,

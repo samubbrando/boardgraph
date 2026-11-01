@@ -15,6 +15,11 @@ from typing import Any
 
 _VALUE_KEYS = ("date", "text", "number", "name", "title")
 
+FIELD_OTIMISTA = "Otimista (dias)"
+FIELD_PROVAVEL = "Mais provável (dias)"
+FIELD_PESSIMISTA = "Pessimista (dias)"
+FIELD_PRAZO = "Prazo"
+
 
 def to_date(value: object) -> date | None:
     """Parse tolerante: aceita date, datetime ou string ISO."""

@@ -16,7 +16,15 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Iterable
 
-from .fields import field_map, to_date, to_iso
+from .fields import (
+    FIELD_OTIMISTA,
+    FIELD_PESSIMISTA,
+    FIELD_PRAZO,
+    FIELD_PROVAVEL,
+    field_map,
+    to_date,
+    to_iso,
+)
 from .team import UNASSIGNED, resolve_teams
 
 
@@ -126,6 +134,10 @@ def _normalize(item: dict) -> dict:
         "status": fields.get("Status"),
         "team": fields.get("Team"),
         "duration": fields.get("Duration"),
+        "optimistic": _number(fields.get(FIELD_OTIMISTA)),
+        "likely": _number(fields.get(FIELD_PROVAVEL)),
+        "pessimistic": _number(fields.get(FIELD_PESSIMISTA)),
+        "deadline": to_iso(to_date(fields.get(FIELD_PRAZO))),
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
         "start_source": "issue_field" if start else None,
@@ -145,6 +157,10 @@ def _normalize(item: dict) -> dict:
         "closed_at": to_iso(to_date(content.get("closedAt"))),
         "absorbed_by": None,
     }
+
+
+def _number(value) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _type(typename: str | None) -> str:

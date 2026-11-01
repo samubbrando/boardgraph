@@ -18,17 +18,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .client import GraphQLClient
-from .fields import field_map, item_key, to_date
+from .fields import (
+    FIELD_OTIMISTA,
+    FIELD_PESSIMISTA,
+    FIELD_PRAZO,
+    FIELD_PROVAVEL,
+    field_map,
+    item_key,
+    to_date,
+)
 
 FIELD_SPECS = (
-    ("Otimista (dias)", "NUMBER"),
-    ("Mais provável (dias)", "NUMBER"),
-    ("Pessimista (dias)", "NUMBER"),
-    ("Prazo", "DATE"),
+    (FIELD_OTIMISTA, "NUMBER"),
+    (FIELD_PROVAVEL, "NUMBER"),
+    (FIELD_PESSIMISTA, "NUMBER"),
+    (FIELD_PRAZO, "DATE"),
 )
-FIELD_OTIMISTA = "Otimista (dias)"
-FIELD_PROVAVEL = "Mais provável (dias)"
-FIELD_PESSIMISTA = "Pessimista (dias)"
 SEED_FACTORS = {FIELD_OTIMISTA: 0.7, FIELD_PROVAVEL: 1.0, FIELD_PESSIMISTA: 1.6}
 SEED_FIELDS = tuple(SEED_FACTORS)
 
@@ -125,7 +130,7 @@ def render_dryrun(
     lines.append(f"semeadura (M=Target−Start+1, O=0.7M, P=1.6M) — {len(rows)} itens:")
     width = max((len(row.key) for row in rows), default=20)
     lines.append(
-        f"  {'key':<{width}} {'start':<11} {'end':<11} {'dias':>4} {'otimista':>9} {'pessimista':>10}"
+        f"  {'chave':<{width}} {'início':<11} {'fim':<11} {'dias':>4} {'otimista':>9} {'pessimista':>10}"
     )
     for row in rows:
         lines.append(
