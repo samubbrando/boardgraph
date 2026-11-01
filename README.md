@@ -16,7 +16,12 @@ python3 -m boardgraph fetch  --owner ORG --project 1
 python3 -m boardgraph probe
 python3 -m boardgraph model
 python3 -m boardgraph render --detail parents --format pdf
+python3 -m boardgraph fields            # dry-run dos campos de estimativa
 ```
+
+`fields --execute` é o único comando que escreve no GitHub: cria os campos
+`Otimista (dias)`/`Mais provável (dias)`/`Pessimista (dias)`/`Prazo` e semeia
+estimativas iniciais. Exige escopo de escrita: `gh auth refresh -s project`.
 
 Filtros: `--detail parents|children|all` e `--team` (repetível).
 Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|dark`.

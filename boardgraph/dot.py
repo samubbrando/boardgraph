@@ -6,8 +6,6 @@ time. `Status` continua sendo apenas cor de nó.
 
 from __future__ import annotations
 
-import re
-
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
 from .viz import (
     TITLE_LIMIT,

@@ -11,12 +11,14 @@ vez de consumir dia algum — mantém start ≤ finish sem inverter datas. Sem
 interna não tem folga finita (`slack=None`) e não é crítico.
 
 Contratos:
-- `duration` é exibição (int); a Fase 3 acrescenta `te`/`sigma` sem substituí-la.
-- `milestone` é o dict do nó — a chave do projeto é `(repo, number)`, nunca título.
+- `duration` (int, dias) é a duração do passe; estimativas e `te`/`sigma`,
+  quando existirem, são estatística e não substituem a duração.
+- `milestone` é o dict do nó ou `None` — a chave do projeto é `(repo, number)`,
+  nunca o título.
 - `team` passa pela herança (`resolve_teams`), igual a `graph`/`render`.
 - Crítico = menor folga do componente (caminho mais longo), não folga zero:
   com prazo folgado todos têm folga positiva e ainda há caminho crítico.
-- `Prazo` por tarefa não entra no cálculo; é alvo de comparação da Fase 3.
+- `Prazo` por tarefa não entra no cálculo do CPM.
 """
 
 from __future__ import annotations
@@ -104,12 +106,15 @@ def schedule(board: dict, graph: dict, deadline: str | date | None = None) -> di
 
         for key in comp:
             node = by_key[key]
-            milestone = node.get("milestone") or {}
             tasks.append({
                 "key": key,
                 "title": node.get("title"),
                 "team": teams.get(key) or UNASSIGNED,
-                "milestone": milestone,
+                "milestone": node.get("milestone"),
+                "optimistic": node.get("optimistic"),
+                "likely": node.get("likely"),
+                "pessimistic": node.get("pessimistic"),
+                "deadline": node.get("deadline"),
                 "component": index,
                 "anchor": to_iso(anchor),
                 "duration": durations[key],

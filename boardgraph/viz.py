@@ -24,6 +24,9 @@ def node_ids(keys: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     used: set[str] = set()
     for key in keys:
+        if "#" not in key:
+            out[key] = f"n_{slug(key) or 'x'}"
+            continue
         repo, _, number = key.rpartition("#")
         base = f"n_{slug(repo.split('/')[-1]) or 'x'}_{number}"
         candidate, n = base, 2

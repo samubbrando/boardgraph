@@ -149,3 +149,43 @@ def test_milestone_vai_como_dict_nao_como_titulo():
     result = schedule({"nodes": [node]}, _graph())
 
     assert result["tasks"][0]["milestone"]["number"] == 3
+
+
+def test_milestone_ausente_e_none_nao_dict():
+    result = schedule({"nodes": [_node("o/r#1", likely=1)]}, _graph())
+
+    assert result["tasks"][0]["milestone"] is None
+
+
+def test_estimativas_e_prazo_vao_para_a_tarefa():
+    node = _node("o/r#1", likely=1)
+    node.update({"optimistic": 0.7, "pessimistic": 1.6, "deadline": "2026-02-01"})
+    result = schedule({"nodes": [node]}, _graph())
+    task = result["tasks"][0]
+
+    assert (task["optimistic"], task["likely"], task["pessimistic"]) == (0.7, 1.0, 1.6)
+    assert task["deadline"] == "2026-02-01"
+
+
+def test_contrato_da_tarefa_e_ordenacao():
+    board = {"nodes": [_node("o/r#2", likely=1), _node("o/r#1", likely=1)]}
+    result = schedule(board, _graph())
+    task = result["tasks"][0]
+
+    assert set(task) == {
+        "key", "title", "team", "milestone", "optimistic", "likely", "pessimistic",
+        "deadline", "component", "anchor", "duration", "duration_source",
+        "planned_start", "planned_end", "start", "finish", "late_start",
+        "late_finish", "slack", "critical",
+    }
+    assert [t["key"] for t in result["tasks"]] == ["o/r#1", "o/r#2"]
+    assert task["slack"] is None
+
+
+def test_estimativa_quebrada_arredonda_para_cima():
+    board = {"nodes": [_node("o/r#1", likely=2.1), _node("o/r#2", likely=0.4)]}
+    result = schedule(board, _graph())
+    by = _by_key(result)
+
+    assert by["o/r#1"]["duration"] == 3
+    assert by["o/r#2"]["duration"] == 1

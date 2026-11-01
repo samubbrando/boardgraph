@@ -336,7 +336,7 @@ campo de board: é `--deadline`/config.
 - CPM ignora contenção de recursos: 13 pessoas/3 frentes não entram na conta.
 - Nós isolados têm folga infinita; o caminho crítico é o do maior componente.
 - `closedAt − start` inclui ociosidade → fator de realidade tende a otimismo.
-- Tarefa sem estimativa cai para `M = Target − Start` com aviso.
+- Tarefa sem estimativa cai para `M = Target − Start + 1` com aviso.
 
 ### Fora de escopo
 

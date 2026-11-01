@@ -6,8 +6,6 @@ O recorte já vem no `Board`; aqui só se escolhe o agrupamento visual
 
 from __future__ import annotations
 
-import re
-
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
 from .viz import (
     TITLE_LIMIT,
@@ -31,6 +29,7 @@ CLASS_DEFS = {
     "done": "fill:#14532d,stroke:#22c55e,color:#dcfce7",
     "ghost": "fill:transparent,stroke:#6b7280,color:#9ca3af,stroke-dasharray:2 4",
 }
+
 
 def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str:
     teams_map = resolve_teams(board) if group_by == "team" else {}

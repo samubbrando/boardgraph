@@ -30,7 +30,8 @@ O boardgraph resolve quatro problemas:
 
 O que a ferramenta **não** resolve, por decisão de escopo:
 
-- Não escreve no GitHub. É somente leitura.
+- Escrita no GitHub é exceção e explícita: só `fields --execute` cria campos
+  e semeia estimativas (escopo `project`). Todo o resto é somente leitura.
 - Não corrige preenchimento do board. `Status` divergente entre pai e filha é
   reportado pelo `probe`, não reconciliado pelo modelo.
 - Não infere dependência que não esteja em `blockedBy`.
@@ -203,14 +204,18 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `teams_map` | `team.resolve_teams` | filtro/render/avisos |
 | `milestones`, `counts`, `warnings` | `model.finalize` | uma vez, após `detail` e `team` |
 | arestas, fantasmas, ciclos, isolados | `graph.build_graph` | render |
-| ids Mermaid/DOT, labels, classes | `render`/`dot` | emissão |
+| ids Mermaid/DOT, grupos, rótulos | `viz` | emissão |
+| labels, classes, escape, sintaxe | `render`/`dot` | emissão |
 
 ## 4. Módulos
+
+Regra de camadas: **módulo puro não importa I/O; só o `cli` compõe I/O**.
+Único módulo de escrita é `pertfields` (client + queries), por caso de uso.
 
 | Arquivo | Responsabilidade | Entrada → saída |
 |---|---|---|
 | `boardgraph/auth.py` | Resolve credencial: explícita > `GITHUB_TOKEN` > `GH_TOKEN` > `gh auth token`; detecta `gh`; mensagem de escopo `read:project`. | ambiente/args → token ou `AuthError` |
-| `boardgraph/client.py` | Cliente GraphQL mínimo. Transporte `gh api graphql` ou HTTPS direto (`urllib`). `auto` escolhe `gh` se disponível. Converte `errors` em `GraphQLError` com dica de escopo. | query + variáveis → `data` |
+| `boardgraph/client.py` | Cliente GraphQL mínimo. Transporte `gh api graphql` ou HTTPS direto (`urllib`). `auto` usa `http` quando há token resolvido, senão `gh`. Converte `errors` em `GraphQLError` com dica de escopo. | query + variáveis → `data` |
 | `boardgraph/queries.py` | Monta o documento GraphQL. Um único documento com paginação por cursor. Inclui os dois formatos de data: campos clássicos (`ProjectV2ItemFieldDateValue`) e issue fields (`ProjectV2ItemIssueFieldValue` → `IssueFieldDateValue`). `include_deps` e `include_body` são opcionais. | flags → string GraphQL |
 | `boardgraph/fields.py` | **Toda** leitura de `fieldValues` passa aqui. `split_value` entende `issueFieldValue` e o formato clássico; `field_map` monta `{nome: valor}`; `item_key` gera chave estável; `to_date`/`to_iso` são o parse de datas do projeto. Guarda também o vocabulário de nomes de campo (`FIELD_OTIMISTA`, …). | item cru → mapa de campos / chave |
 | `boardgraph/fetch.py` | `fetch_board` executa a query, pagina até `max_pages`, tenta de novo sem `blockedBy/parent` se o GraphQL recusar dependências (`degraded`), grava `latest.json`/`latest.meta.json` e resume o meta. | `FetchConfig` → `FetchResult` + arquivos |
@@ -313,10 +318,15 @@ sem dependência".
 ### 5.8 Dois emissores, mesma informação
 
 Mermaid é o formato de inspeção rápida e diff; Graphviz é o que gera SVG/PDF
-com layout melhor. Os dois emissores repetem grupos, labels, cores e arestas
-porque têm sintaxes incompatíveis. O custo aceito é duplicação; o risco é os
-dois divergirem. Por isso ambos recebem o mesmo `group_by` e usam as mesmas
-funções de agrupamento conceitual (`milestone` ou `team`).
+com layout melhor. A semântica de agrupamento (grupo, ordem, rótulo, ids) é
+uma só: `viz.py`, compartilhada pelos dois. O que se repete é só a sintaxe de
+cada linguagem, que é incompatível por definição.
+
+Desde a Fase H os artefatos mudaram em três pontos, todos unificações: rótulo
+de milestone sem título virou `milestone N · M` (antes o Graphviz mostrava só
+o número), o cluster de nós sem milestone virou `m_sem_milestone` nos dois, e
+ids de nó ganharam anti-colisão também no Graphviz. O ramo `external` de
+`render._class` saiu: era inalcançável (fantasmas entram por subgrafo).
 
 ### 5.9 Filtro server-side é opcional
 
@@ -339,7 +349,7 @@ suma da query.
 ### Número de milestone colidindo entre repositórios
 
 Nunca use só `number`. `(repo, number)` é a chave em `model`, `probe`,
-`render` e `dot`. O título também não é chave: há typo em "Mllestone 1".
+`viz`, `render`, `dot` e `pert`. O título também não é chave: há typo em "Mllestone 1".
 
 ### PR sem datas
 

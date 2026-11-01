@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .client import GraphQLClient
-from .queries import CREATE_PROJECT_FIELD, SET_ITEM_FIELD_VALUE
 from .fields import (
     FIELD_OTIMISTA,
     FIELD_PESSIMISTA,
@@ -28,6 +27,7 @@ from .fields import (
     item_key,
     to_date,
 )
+from .queries import CREATE_PROJECT_FIELD, SET_ITEM_FIELD_VALUE
 
 FIELD_SPECS = (
     (FIELD_OTIMISTA, "NUMBER"),
@@ -38,12 +38,13 @@ FIELD_SPECS = (
 SEED_FACTORS = {FIELD_OTIMISTA: 0.7, FIELD_PROVAVEL: 1.0, FIELD_PESSIMISTA: 1.6}
 SEED_FIELDS = tuple(SEED_FACTORS)
 
+
 @dataclass
 class Span:
-    days: int = 0
-    start: str = ""
-    end: str = ""
-    reason: str | None = None
+    days: int
+    start: str
+    end: str
+    reason: str | None
 
 
 @dataclass
@@ -174,7 +175,7 @@ def _span(start: object, end: object) -> Span:
     """Span válido ou, no campo `reason`, o motivo de pular a semente."""
     s, e = to_date(start), to_date(end)
     if s is None or e is None:
-        return Span(reason="sem Start/Target")
+        return Span(0, "", "", "sem Start/Target")
     if e < s:
-        return Span(reason="Target antes de Start")
-    return Span(days=(e - s).days + 1, start=s.isoformat(), end=e.isoformat())
+        return Span(0, "", "", "Target antes de Start")
+    return Span((e - s).days + 1, s.isoformat(), e.isoformat(), None)

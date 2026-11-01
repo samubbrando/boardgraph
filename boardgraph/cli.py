@@ -118,9 +118,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except GraphQLError as exc:
         hint = ""
-        if exc.hint_missing_scope:
-            scope = "project" if args.command == "fields" else "read:project"
-            hint = f"\ndica: token sem escopo `{scope}` (gh auth refresh -s {scope})"
+        if args.command == "fields":
+            hint = "\ndica: mutação exige escopo de escrita (gh auth refresh -s project)"
+        elif exc.hint_missing_scope:
+            hint = "\ndica: token sem escopo `read:project` (gh auth refresh -s read:project)"
         print(f"erro GraphQL: {exc}{hint}", file=sys.stderr)
         return 3
     except (RuntimeError, FileNotFoundError) as exc:
