@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "description": "Exemplo. Copie para people-names.json e preencha. O arquivo real é ignorado pelo Git.",
+  "people": {
+    "fulano": {
+      "name": "Fulano de Tal",
+      "short": "Fulano",
+      "aliases": ["fulano-antigo"],
+      "active": true,
+      "bot": false,
+      "role": "Dev Backend",
+      "team": "Back",
+      "manager": "beltrano"
+    },
+    "beltrano": {
+      "name": "Beltrano de Souza",
+      "short": "Beltrano",
+      "aliases": [],
+      "active": true,
+      "bot": false,
+      "role": "Gerente",
+      "team": "Gerência",
+      "manager": null
+    },
+    "ciclano": {
+      "name": "Ciclano de Oliveira",
+      "short": "Ciclano",
+      "aliases": [],
+      "active": false,
+      "bot": false,
+      "role": null,
+      "team": null,
+      "manager": "beltrano"
+    },
+    "dependabot[bot]": {
+      "name": "Dependabot",
+      "short": "Dependabot",
+      "aliases": [],
+      "active": true,
+      "bot": true,
+      "role": null,
+      "team": null,
+      "manager": null
+    }
+  }
+}
