@@ -13,6 +13,7 @@ from .client import GraphQLError
 from .fetch import FetchConfig, fetch_board, save, summarize
 from .graph import build_graph, render_terminal as render_graph
 from .model import build_board, filter_detail, finalize, render_terminal
+from .people import DEFAULT_PEOPLE_FILE, PeopleError, load as load_people
 from .render import render_mermaid
 from .team import filter_team
 from .dot import render_dot
@@ -58,6 +59,28 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--group-by", choices=["milestone", "team"], default="milestone")
     render.add_argument("--format", choices=["mmd", "dot", "svg", "pdf"], default="mmd")
     render.add_argument("--theme", choices=["light", "dark"], default="light")
+    render.add_argument(
+        "--people",
+        type=Path,
+        default=DEFAULT_PEOPLE_FILE,
+        help="JSON de nomes dos responsáveis (padrão: people-names.json)",
+    )
+    render.add_argument(
+        "--show-assignees",
+        action="store_true",
+        help="mostra o responsável no rótulo do nó",
+    )
+    render.add_argument(
+        "--assignee-format",
+        choices=["name", "login", "both"],
+        default="both",
+        help="formato do responsável: nome, @login ou nome (@login) (padrão: both)",
+    )
+    render.add_argument(
+        "--strict-people",
+        action="store_true",
+        help="falha se algum assignee não estiver no arquivo de pessoas",
+    )
     render.add_argument("--print", action="store_true", help="imprime o Mermaid no terminal")
 
     return parser
@@ -161,6 +184,31 @@ def _cmd_render(args: argparse.Namespace) -> int:
     board = _apply_filters(payload, args.detail, args.team)
     graph = build_graph(board)
 
+    people = None
+    if args.show_assignees:
+        try:
+            people = load_people(args.people)
+        except PeopleError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            return 1
+        logins = sorted(
+            {
+                login
+                for node in board["nodes"]
+                for login in (node.get("assignees") or ())
+            }
+        )
+        unknown = [login for login in logins if people.resolve(login) is None]
+        if unknown:
+            print(
+                f"aviso: {len(unknown)} login(s) sem nome: {', '.join(unknown)}",
+                file=sys.stderr,
+            )
+            if args.strict_people:
+                return 1
+        for warning in people.warnings:
+            print(f"aviso: {warning}", file=sys.stderr)
+
     label = _stem_label(args.detail, args.team, args.group_by)
     stem = args.out / f"graph-{label}"
     edges_path = args.out / f"edges-{label}.json"
@@ -189,8 +237,23 @@ def _cmd_render(args: argparse.Namespace) -> int:
     for warning in board["warnings"]:
         print(f"          aviso: {warning}")
 
-    mermaid = render_mermaid(board, graph, args.group_by)
-    dot_src = render_dot(board, graph, args.group_by, args.theme)
+    mermaid = render_mermaid(
+        board,
+        graph,
+        args.group_by,
+        people=people,
+        show_assignees=args.show_assignees,
+        assignee_format=args.assignee_format,
+    )
+    dot_src = render_dot(
+        board,
+        graph,
+        args.group_by,
+        args.theme,
+        people=people,
+        show_assignees=args.show_assignees,
+        assignee_format=args.assignee_format,
+    )
 
     for line in _emit(mermaid=mermaid, dot=dot_src, stem=stem, fmt=args.format):
         print(f"          {line}")

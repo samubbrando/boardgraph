@@ -1,8 +1,12 @@
 import unittest
+from pathlib import Path
 
 from boardgraph.dot import render_dot
 from boardgraph.graph import build_graph
+from boardgraph.people import load
 from boardgraph.render import render_mermaid
+
+PEOPLE = load(Path(__file__).resolve().parents[1] / "people-names.example.json")
 
 
 def _node(key, status="Todo", blocked=(), parent=None, children=None, team=None, **extra):
@@ -111,6 +115,101 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Back · 2", mermaid)
         self.assertIn("cluster_t_Back", dot)
         self.assertIn("cluster_t_Front", dot)
+
+
+class AssigneeLabelTests(unittest.TestCase):
+    def test_mermaid_shows_assignee_name(self):
+        node = _node("o/r#1", assignees=["fulano"])
+        board = _board([node])
+        text = render_mermaid(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+            assignee_format="name",
+        )
+        self.assertIn("Resp.: Fulano", text)
+
+    def test_dot_shows_assignee_name(self):
+        node = _node("o/r#1", assignees=["fulano"])
+        board = _board([node])
+        text = render_dot(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+            assignee_format="name",
+        )
+        self.assertIn("Resp.: Fulano", text)
+
+    def test_both_format_keeps_login(self):
+        node = _node("o/r#1", assignees=["fulano"])
+        board = _board([node])
+        mermaid = render_mermaid(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+            assignee_format="both",
+        )
+        dot = render_dot(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+            assignee_format="both",
+        )
+        self.assertIn("Fulano (@fulano)", mermaid)
+        self.assertIn("Fulano (@fulano)", dot)
+
+    def test_unknown_assignee_falls_back_to_login(self):
+        node = _node("o/r#1", assignees=["nao-existe"])
+        board = _board([node])
+        text = render_mermaid(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+        )
+        self.assertIn("@nao-existe", text)
+
+    def test_multiple_assignees_are_limited(self):
+        node = _node("o/r#1", assignees=["fulano", "beltrano", "ciclano"])
+        board = _board([node])
+        text = render_mermaid(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+            assignee_format="name",
+        )
+        self.assertIn("Fulano, Beltrano +1", text)
+
+    def test_show_assignees_is_opt_in(self):
+        node = _node("o/r#1", assignees=["fulano"])
+        board = _board([node])
+        mermaid = render_mermaid(board, build_graph(board), "milestone")
+        dot = render_dot(board, build_graph(board), "milestone")
+        self.assertNotIn("Resp.:", mermaid)
+        self.assertNotIn("Resp.:", dot)
+
+    def test_ghost_has_no_assignee_line(self):
+        node = _node("o/r#2", blocked=["o/r#99"])
+        board = _board([node])
+        text = render_mermaid(
+            board,
+            build_graph(board),
+            "milestone",
+            people=PEOPLE,
+            show_assignees=True,
+        )
+        self.assertNotIn("Resp.:", text)
 
 
 class MermaidLintTests(unittest.TestCase):

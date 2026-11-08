@@ -5,7 +5,18 @@ from boardgraph.model import build_board, filter_detail, finalize
 from boardgraph.team import filter_team
 
 
-def _item(number, start, end, ms=1, parent=None, blocks=(), kind="Issue", repo="o/r", team=None):
+def _item(
+    number,
+    start,
+    end,
+    ms=1,
+    parent=None,
+    blocks=(),
+    kind="Issue",
+    repo="o/r",
+    team=None,
+    assignees=(),
+):
     content = {
         "__typename": kind,
         "number": number,
@@ -14,6 +25,7 @@ def _item(number, start, end, ms=1, parent=None, blocks=(), kind="Issue", repo="
         "state": "OPEN",
         "repository": {"nameWithOwner": repo},
         "milestone": {"number": ms, "title": f"M{ms}", "dueOn": "2026-10-10T00:00:00Z"} if ms else None,
+        "assignees": {"nodes": [{"login": login} for login in assignees]},
         "blockedBy": {
             "totalCount": len(blocks),
             "nodes": [{"number": b, "repository": {"nameWithOwner": repo}} for b in blocks],
@@ -136,6 +148,35 @@ class MilestoneTests(unittest.TestCase):
         ms = board["milestones"][0]
         self.assertEqual(ms["nodes"], 1)
         self.assertEqual((ms["start"], ms["end"]), ("2026-10-10", "2026-10-15"))
+
+
+class AssigneesTests(unittest.TestCase):
+    def test_normalize_keeps_assignees(self):
+        board = _board([_item(1, "2026-10-01", "2026-10-05", assignees=["bia", "ana"])])
+        self.assertEqual(board["items"][0]["assignees"], ["ana", "bia"])
+
+    def test_collapse_unions_assignees_of_parent_and_children(self):
+        board = _board(
+            [
+                _item(1, "2026-10-01", "2026-10-05", assignees=["ana"]),
+                _item(2, "2026-10-10", "2026-10-20", parent=1, assignees=["bia"]),
+                _item(3, "2026-10-21", "2026-10-31", parent=1, assignees=["ana"]),
+            ]
+        )
+        self.assertEqual(len(board["nodes"]), 1)
+        self.assertEqual(board["nodes"][0]["assignees"], ["ana", "bia"])
+
+    def test_children_keep_their_own_assignees(self):
+        board = _board(
+            [
+                _item(1, "2026-10-01", "2026-10-05", assignees=["ana"]),
+                _item(2, "2026-10-10", "2026-10-20", parent=1, assignees=["bia"]),
+            ],
+            detail="children",
+        )
+        by_number = {n["number"]: n for n in board["nodes"]}
+        self.assertEqual(by_number[1]["assignees"], ["ana"])
+        self.assertEqual(by_number[2]["assignees"], ["bia"])
 
 
 class ImmutabilityTests(unittest.TestCase):

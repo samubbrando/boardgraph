@@ -276,3 +276,23 @@ fallback e nunca é descartado.
   ou usa um script.
 - `edges-<recorte>.json` é derivado do `Board` filtrado, com contagens,
   fantasmas, arestas, isolados e ciclos.
+
+## Fase 8 — nomes dos responsáveis
+
+Implementada em 2026-11-08.
+
+- [x] `model._normalize` guarda `assignees` (logins) e `_collapse` une os
+      assignees do pai + filhas.
+- [x] `people.py` carrega `people-names.json` (local, ignorado), resolve
+      login/alias e formata `name`, `login` ou `both`.
+- [x] `render --people`, `--show-assignees`, `--assignee-format` e
+      `--strict-people`.
+- [x] Mermaid e DOT mostram `Resp.: ...`; ghost não tem responsável.
+- [x] `people-names.example.json` versionado; `people-names.json` no
+      `.gitignore`.
+- [x] 75 testes offline.
+
+Medido em 2026-11-08: 86 itens, 72 nós, 72/72 nós com assignee, 13 pessoas no
+arquivo, 0 logins desconhecidos. `parents --show-assignees --assignee-format
+both --format pdf` gerou um PDF de 2080×3185 pts; o nome aparece em todos os
+nós e o colapso de `backend#9` mostra os responsáveis do grupo.

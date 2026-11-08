@@ -21,6 +21,28 @@ python3 -m boardgraph render --detail parents --format pdf
 Filtros: `--detail parents|children|all` e `--team` (repetível).
 Render: `--group-by milestone|team`, `--format mmd|dot|svg|pdf`, `--theme light|dark`.
 
+## Nomes dos responsáveis
+
+O render pode mostrar o responsável de cada nó. Para isso, crie o arquivo
+local `people-names.json` a partir do exemplo:
+
+```bash
+cp people-names.example.json people-names.json
+```
+
+Preencha `name`, `short`, `aliases` e, opcionalmente, `role`, `team` e
+`manager`. O `people-names.json` é **ignorado pelo Git**; o exemplo versionado
+é `people-names.example.json`.
+
+```bash
+python3 -m boardgraph render --show-assignees --assignee-format both --format pdf
+```
+
+- `--people PATH` aponta para outro arquivo.
+- `--assignee-format name|login|both` escolhe o rótulo (padrão: `both`).
+- `--strict-people` falha se algum assignee não estiver no arquivo.
+- Login desconhecido aparece como `@login` e gera aviso.
+
 ## Documentação
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — pipeline, modelo de dados, decisões e armadilhas.

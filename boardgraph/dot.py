@@ -7,8 +7,12 @@ time. `Status` continua sendo apenas cor de nó.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
+
+if TYPE_CHECKING:
+    from .people import PeopleIndex
 
 TITLE_LIMIT = 34
 
@@ -40,7 +44,15 @@ THEMES = {
 STATUS_KEY = {"Todo": "todo", "In progress": "doing", "In Progress": "doing", "Done": "done"}
 
 
-def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str = "light") -> str:
+def render_dot(
+    board: dict,
+    graph: dict,
+    group_by: str = "milestone",
+    theme: str = "light",
+    people: "PeopleIndex | None" = None,
+    show_assignees: bool = False,
+    assignee_format: str = "both",
+) -> str:
     t = THEMES[theme]
     teams_map = resolve_teams(board) if group_by == "team" else {}
     ids = {n["key"]: _nid(n["key"]) for n in graph["nodes"]}
@@ -59,7 +71,10 @@ def render_dot(board: dict, graph: dict, group_by: str = "milestone", theme: str
         out.append(f'    label="{_esc(_group_label(group, nodes))}";')
         out.append(f'    labeljust="l"; style="rounded,dashed"; color="{t["cluster_border"]}"; fontcolor="{t["cluster_font"]}"; fontsize=11;')
         for node in sorted(nodes, key=lambda n: n["key"]):
-            out.append(f"    {ids[node['key']]} [{_attrs(node, t)}];")
+            out.append(
+                f"    {ids[node['key']]} "
+                f"[{_attrs(node, t, people, show_assignees, assignee_format)}];"
+            )
         out.append("  }")
 
     if graph["ghosts"]:
@@ -103,26 +118,59 @@ def _graph_attrs(t: dict) -> str:
     )
 
 
-def _attrs(node: dict, t: dict) -> str:
+def _attrs(
+    node: dict,
+    t: dict,
+    people: "PeopleIndex | None" = None,
+    show_assignees: bool = False,
+    assignee_format: str = "both",
+) -> str:
     key = STATUS_KEY.get(node.get("status") or "", "todo")
     fill, border, font = t[key]
     style = '"rounded,filled' + (",dashed" if key == "todo" else "") + '"'
+    label = _node_label(node, people, show_assignees, assignee_format)
     return (
-        f'label="{_esc(_node_label(node))}", fillcolor="{fill}", color="{border}", '
+        f'label="{_esc(label)}", fillcolor="{fill}", color="{border}", '
         f'fontcolor="{font}", style={style}{_url(node)}'
     )
 
 
-def _node_label(node: dict) -> str:
+def _node_label(
+    node: dict,
+    people: "PeopleIndex | None" = None,
+    show_assignees: bool = False,
+    assignee_format: str = "both",
+) -> str:
     title = node.get("title") or ""
     short = title if len(title) <= TITLE_LIMIT else title[: TITLE_LIMIT - 1] + "…"
     number = node.get("number")
     head = f"#{number}" if number is not None else "?"
     label = f"{head} · {short}"
+    if show_assignees:
+        resp = _assignee_text(node, people, assignee_format)
+        if resp:
+            label += f"\nResp.: {resp}"
     children = node.get("children") or []
     if children:
         label += f"\n+{len(children)} sub-issue(s)"
     return label
+
+
+def _assignee_text(
+    node: dict,
+    people: "PeopleIndex | None",
+    assignee_format: str,
+    limit: int = 2,
+) -> str:
+    assignees = tuple(dict.fromkeys(node.get("assignees") or ()))
+    if not assignees:
+        return ""
+    if people is not None:
+        return people.format_many(assignees, mode=assignee_format, limit=limit)
+    shown = ", ".join(f"@{login}" for login in assignees[:limit])
+    if len(assignees) > limit:
+        shown += f" +{len(assignees) - limit}"
+    return shown
 
 
 def _ghost_label(ghost: dict) -> str:

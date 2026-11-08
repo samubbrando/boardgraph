@@ -92,6 +92,7 @@ def finalize(board: dict) -> dict:
 def _node_copy(item: dict) -> dict:
     node = dict(item)
     node["children"] = list(item.get("children") or [])
+    node["assignees"] = list(item.get("assignees") or [])
     return node
 
 
@@ -125,6 +126,7 @@ def _normalize(item: dict) -> dict:
         "state": content.get("state"),
         "status": fields.get("Status"),
         "team": fields.get("Team"),
+        "assignees": _assignees(content.get("assignees")),
         "duration": fields.get("Duration"),
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
@@ -164,6 +166,22 @@ def _keys(connection: dict | None) -> list[str]:
     return sorted(set(out))
 
 
+def _assignees(connection: dict | None) -> list[str]:
+    out = []
+    for node in (connection or {}).get("nodes") or []:
+        login = (node or {}).get("login")
+        if login:
+            out.append(str(login))
+    return sorted(set(out))
+
+
+def _union_assignees(group: Iterable[dict]) -> list[str]:
+    out = set()
+    for item in group:
+        out.update(item.get("assignees") or ())
+    return sorted(out)
+
+
 # ------------------------------------------------------------------- colapso
 
 
@@ -184,6 +202,7 @@ def _collapse(items: list[dict]) -> tuple[list[dict], dict[str, list[str]]]:
             absorbed[root_key] = sorted(i["key"] for i in group if i["key"] != root_key)
         root["children"] = absorbed.get(root_key, [])
         root.update(_union_window(group))
+        root["assignees"] = _union_assignees(group)
         root["blocked_by"] = _merge_blockers(group, root_key, by_key)
         nodes.append(root)
 

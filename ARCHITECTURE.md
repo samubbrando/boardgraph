@@ -115,6 +115,7 @@ Cada item cru tem `id`, `createdAt`, `updatedAt`, `fieldValues.nodes[]` e
   "state": "OPEN",
   "status": "Todo",
   "team": "Back",
+  "assignees": ["ana", "bia"],
   "duration": 2,
   "start": "2026-10-01",
   "end": "2026-10-05",
@@ -137,6 +138,9 @@ Cada item cru tem `id`, `createdAt`, `updatedAt`, `fieldValues.nodes[]` e
   é coletado mas **não** é usado como fallback de início no código atual.
 - `milestone` é `null` quando a issue não tem milestone.
 - `type` traduz `__typename` (`Issue`, `PullRequest`, `DraftIssue`).
+- `assignees` é a lista de logins de `content.assignees.nodes[].login`,
+  ordenada e sem duplicatas. O modelo não resolve nomes; isso é feito no
+  render pelo arquivo local `people-names.json`.
 
 ### 3.3 Nó (`board["nodes"]`)
 
@@ -149,6 +153,8 @@ Um nó é um item normalizado, com três diferenças possíveis:
    `start_source`/`end_source` iguais a `"union"`.
 3. Os `blocked_by` das filhas são re-apontados para o nó raiz; bloqueante que
    cair dentro do próprio grupo é descartado.
+4. Os `assignees` do nó colapsado são a **união** do pai + filhas. Assim o
+   responsável não some quando só a sub-issue tem assignee.
 
 O nó raiz continua com `absorbed_by: null`; as filhas ficam fora de `nodes`.
 O mapa `parent → [filhas]` fica em `board["absorbed"]`. `_collapse` nunca
@@ -189,6 +195,7 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | Derivado | Calculado em | Momento |
 |---|---|---|
 | `start`/`end`/`*_source` | `model._normalize` | normalização |
+| `assignees` | `model._normalize` / `_collapse` | normalização; união no colapso |
 | união de janela e merge de blockers | `model._collapse` | `filter_detail(parents)` |
 | `absorbed` | `model._collapse` | `filter_detail(parents)` |
 | `teams_map` | `team.resolve_teams` | filtro/render/avisos |
@@ -205,6 +212,7 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `boardgraph/queries.py` | Monta o documento GraphQL. Um único documento com paginação por cursor. Inclui os dois formatos de data: campos clássicos (`ProjectV2ItemFieldDateValue`) e issue fields (`ProjectV2ItemIssueFieldValue` → `IssueFieldDateValue`). `include_deps` e `include_body` são opcionais. | flags → string GraphQL |
 | `boardgraph/fields.py` | **Toda** leitura de `fieldValues` passa aqui. `split_value` entende `issueFieldValue` e o formato clássico; `field_map` monta `{nome: valor}`; `item_key` gera chave estável. É a camada que impede `null` silencioso nas datas. | item cru → mapa de campos / chave |
 | `boardgraph/fetch.py` | `fetch_board` executa a query, pagina até `max_pages`, tenta de novo sem `blockedBy/parent` se o GraphQL recusar dependências (`degraded`), grava `latest.json`/`latest.meta.json` e resume o meta. | `FetchConfig` → `FetchResult` + arquivos |
+| `boardgraph/people.py` | Carrega `people-names.json` (local, ignorado), resolve login/alias e formata `name`, `login` ou `both`. O example versionado é `people-names.example.json`. | JSON → `PeopleIndex` |
 | `boardgraph/probe.py` | Relatório de cobertura. Linhas obrigatórias (`Status`, `Start date`, `Target date`, `Milestone`) geram aviso; informativas não. Detecta milestone por `(repo, number)`, `dueOn` ausente e divergência de `Status` pai/filha. | payload → relatório; grava `report.md/json` |
 | `boardgraph/model.py` | Núcleo puro. `build_board` normaliza itens; `filter_detail` aplica `parents`/`children`/`all`; `finalize` calcula `milestones`, `counts` e `warnings` uma vez. Também formata a tabela de terminal. | payload → `Board`; `Board` + `detail` → `Board` |
 | `boardgraph/graph.py` | Arestas `blocked_by` (dependência) e `parent` (hierarquia, só em `children`/`all`), fantasmas para bloqueantes fora do recorte (com time lido de `items`), Tarjan para ciclos, lista de isolados. | `Board` → grafo |
@@ -213,7 +221,7 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `boardgraph/dot.py` | Emissor Graphviz. Temas `light`/`dark`, clusters por `group_by`, cores por `Status`, `URL=` para abrir a issue. | `Board`/`graph` + `group_by` → DOT |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 50 testes unitários offline. | — |
+| `tests/` | 75 testes unitários offline. | — |
 
 ## 5. Decisões e evidência
 
@@ -313,6 +321,15 @@ validado no board real: `updated:>=2026-10-20` → 29 itens, `status:Done` → 1
 `-status:Done` → 26, `team:Back` → 13. O filtro reduz payload, mas muda o
 snapshot: use-o para recortes, não para o `board.json` canônico.
 
+### 5.10 Nomes de responsáveis são um arquivo local
+
+O GitHub fornece `assignees` como login. O nome legível é um dado externo ao
+board, mantido em `people-names.json` (local, ignorado pelo Git). O exemplo
+versionado é `people-names.example.json`. A resolução acontece só no render:
+`model`/`board.json` continuam guardando logins, e o grafo resolve
+`login → nome` na hora de rotular. Login desconhecido vira `@login` com aviso;
+`--strict-people` transforma isso em erro.
+
 ## 6. Armadilhas conhecidas
 
 ### Issue field versus campo clássico
@@ -409,6 +426,10 @@ python -m boardgraph render --format pdf
 python -m boardgraph render --team Front --format pdf
 python -m boardgraph render --detail children --team Back
 python -m boardgraph render --group-by team
+
+# 7. Nomes dos responsáveis (people-names.json local, ignorado)
+cp people-names.example.json people-names.json
+python -m boardgraph render --show-assignees --assignee-format both --format pdf
 ```
 
 Opções úteis:
@@ -443,29 +464,36 @@ Saídas em `out/`:
 | `out/graph-<detail>-by-team.pdf` | `render --group-by team` | um cluster por time |
 | `out/graph-<detail>-team-<time>.pdf` | `render --team …` | recorte por time |
 
-Números atuais (board de referência, `parents`): 45 itens, 41 nós, 3
-absorvidos, 13 milestones, 34 arestas de dependência, 1 fantasma
+Números históricos (board de referência, `parents`, 2026-10-29/30): 45 itens,
+41 nós, 3 absorvidos, 13 milestones, 34 arestas de dependência, 1 fantasma
 (`backend#12`) com 2 arestas, 19 isolados, 0 ciclos. `children` = 44 nós e 37
 arestas (34 dependência + 3 hierarquia), 22 isolados. `all` = 45 nós, 23
 isolados. Zero milestones misturam times.
 
+Em 2026-11-08, depois da criação das issues de gerência, o snapshot tinha 86
+itens, 72 nós, 14 absorvidos, 37 arestas de dependência, 1 fantasma e 46
+isolados. O board cresceu; os números acima são o retrato daquela data, não
+um contrato.
+
 ## 8. Estado da suíte de testes
 
-50 testes, todos offline, executados com:
+75 testes, todos offline, executados com:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Resultado em 2026-10-31: `Ran 50 tests ... OK`.
+Resultado em 2026-11-08: `Ran 75 tests ... OK`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
 | `tests/test_fetch.py` | 6 | Query contém `ProjectV2ItemIssueFieldValue`/`IssueFieldDateValue`; toggles de `blockedBy` e `body`; normalização de `--filter -status:Done`; resumo marca `DEGRADED`. |
 | `tests/test_probe.py` | 5 | Board completo sem aviso; falta de `Start date` obrigatória gera aviso; campo opcional esparso não gera; `body` não coletado não é erro; milestone contada por repositório (mesmo número em repos diferentes). |
-| `tests/test_model.py` | 13 | Colapso: filha absorvida, união de janela, blocker de filha re-apontado, blocker irmão descartado, pai fora do board não colapsa. `children` mantém nós; `all` inclui PR. `items` não é mutado; `detail`+`team` compõem; janela de milestone recalculada no subconjunto. |
-| `tests/test_graph.py` | 13 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Lint Mermaid. |
+| `tests/test_model.py` | 16 | Colapso: filha absorvida, união de janela, blocker de filha re-apontado, blocker irmão descartado, pai fora do board não colapsa. `children` mantém nós; `all` inclui PR. `items` não é mutado; `detail`+`team` compõem; janela de milestone recalculada no subconjunto. Assignees: normalização e união no colapso. |
+| `tests/test_graph.py` | 20 | Aresta bloqueante→bloqueado; blocker externo vira fantasma; hierarquia só em `children`/`all`; ciclo via Tarjan; isolados; nó bloqueado não é isolado. Render: aspas, ids, `click`, fantasma com time de origem, `group_by=team` nos dois emissores. Assignees: nome, `both`, desconhecido, limite e opt-in. Lint Mermaid. |
 | `tests/test_team.py` | 13 | Herança de time pela cadeia de pai; sem time permanece `None`; seleção; externo mantém time de origem; fora do board marcado; blocker interno não é externo; múltiplos times; `(sem time)` nunca descartado; time inexistente avisa; time sem dependência avisa; arestas só tocam nós mantidos. |
+| `tests/test_people.py` | 13 | Example válido; resolução case-insensitive; alias; bot/inativo; modos `name`/`login`/`both`; limite; desconhecido/ghost; validação de alias, login duplicado, nome ausente, arquivo ausente e manager desconhecido. |
+| `tests/test_cli.py` | 2 | Defaults de `--people`, `--show-assignees`, `--assignee-format` e `--strict-people`. |
 
 Lacunas de teste atuais: não há teste de temas do `dot.py` (light/dark,
 escape, `URL=`), nem de `fetch_board` com cliente falso/paginação/degraded,
@@ -490,6 +518,8 @@ divergiam:
    agrupamento é parâmetro do renderer.
 6. **`--all` foi removido.** `--detail all` é o recorte que inclui PR.
 7. **Fase 6 duplicada** foi removida do plano.
+8. **Fase 8 (nomes) concluída.** `assignees` entra no modelo, o colapso une
+   os responsáveis e `people-names.json` resolve os nomes no render.
 
 ## 10. Pontos em aberto
 
@@ -564,3 +594,10 @@ divergiam:
     Resolvido na Fase 7: `filter_team` devolve `Board` e o render sempre
     chama `build_graph`, então ciclos e isolados usam o mesmo código do grafo
     completo.
+
+11. **Nomes longos aumentam o grafo.**
+    `--show-assignees` usa `short` e limita a 2 nomes + `+N`, mas o PDF de
+    `parents` com 72 nós ainda fica largo. Para resolver: medir com
+    `--assignee-format name` e com recortes `--team`; se continuar denso,
+    decidir entre fonte menor, quebra de linha ou mostrar o responsável só
+    em um modo “detalhado”.

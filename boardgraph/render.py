@@ -7,8 +7,12 @@ O recorte já vem no `Board`; aqui só se escolhe o agrupamento visual
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from .team import OUTSIDE, UNASSIGNED, resolve_teams
+
+if TYPE_CHECKING:
+    from .people import PeopleIndex
 
 STATUS_CLASS = {
     "Todo": "todo",
@@ -27,7 +31,14 @@ CLASS_DEFS = {
 TITLE_LIMIT = 34
 
 
-def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str:
+def render_mermaid(
+    board: dict,
+    graph: dict,
+    group_by: str = "milestone",
+    people: "PeopleIndex | None" = None,
+    show_assignees: bool = False,
+    assignee_format: str = "both",
+) -> str:
     teams_map = resolve_teams(board) if group_by == "team" else {}
     node_id = _ids([n["key"] for n in graph["nodes"]] + [g["key"] for g in graph["ghosts"]])
 
@@ -41,7 +52,10 @@ def render_mermaid(board: dict, graph: dict, group_by: str = "milestone") -> str
     for group, nodes in sorted(groups.items(), key=lambda kv: (order.get(kv[0], 10**6), str(kv[0]))):
         lines.append(f'  subgraph {_sid(group)}["{_group_label(group, nodes)}"]')
         for node in sorted(nodes, key=lambda n: n["key"]):
-            lines.append(f'    {node_id[node["key"]]}["{_label(node)}"]:::{_class(node)}')
+            label = _label(node, people, show_assignees, assignee_format)
+            lines.append(
+                f'    {node_id[node["key"]]}["{label}"]:::{_class(node)}'
+            )
         lines.append("  end")
 
     if graph["ghosts"]:
@@ -135,16 +149,42 @@ def _class(node: dict) -> str:
     return STATUS_CLASS.get(node.get("status") or "", "todo")
 
 
-def _label(node: dict) -> str:
+def _label(
+    node: dict,
+    people: "PeopleIndex | None" = None,
+    show_assignees: bool = False,
+    assignee_format: str = "both",
+) -> str:
     title = node.get("title") or ""
     short = title if len(title) <= TITLE_LIMIT else title[: TITLE_LIMIT - 1] + "…"
     number = node.get("number")
     head = f"#{number}" if number is not None else "?"
     label = f"{head} · {short}"
+    if show_assignees:
+        resp = _assignee_text(node, people, assignee_format)
+        if resp:
+            label += f"<br/>Resp.: {resp}"
     children = node.get("children") or []
     if children:
         label += f"<br/>+{len(children)} sub-issue(s)"
     return _esc(label)
+
+
+def _assignee_text(
+    node: dict,
+    people: "PeopleIndex | None",
+    assignee_format: str,
+    limit: int = 2,
+) -> str:
+    assignees = tuple(dict.fromkeys(node.get("assignees") or ()))
+    if not assignees:
+        return ""
+    if people is not None:
+        return people.format_many(assignees, mode=assignee_format, limit=limit)
+    shown = ", ".join(f"@{login}" for login in assignees[:limit])
+    if len(assignees) > limit:
+        shown += f" +{len(assignees) - limit}"
+    return shown
 
 
 def _ghost_label(ghost: dict) -> str:
