@@ -8,6 +8,7 @@ time, com janelas de tempo calculadas a partir das datas das próprias issues.
 - Python 3.10+
 - [`gh`](https://cli.github.com/) autenticado com escopo `read:project`
 - [Graphviz](https://graphviz.org/) apenas para `svg`/`pdf`
+- `matplotlib` apenas para `timeline` (`pip install matplotlib`)
 
 ## Uso
 
@@ -42,6 +43,28 @@ python3 -m boardgraph render --show-assignees --assignee-format both --format pd
 - `--assignee-format name|login|both` escolhe o rótulo (padrão: `both`).
 - `--strict-people` falha se algum assignee não estiver no arquivo.
 - Login desconhecido aparece como `@login` e gera aviso.
+
+## Cronograma/Gantt
+
+O comando `timeline` gera um Gantt por mês ou intervalo, com os nomes
+completos dos responsáveis e barras coloridas por status.
+
+```bash
+python3 -m boardgraph timeline --month 2026-10 --name-style full --format all
+python3 -m boardgraph timeline --month 2026-11 --group-by assignee --format png
+```
+
+- `--month YYYY-MM` ou `--from/--to`
+- `--team` (repetível), `--status all|open|done`
+- `--group-by team|assignee|milestone`
+- `--name-style full|short`, `--show-login`
+- `--split-assignees` (uma linha por pessoa)
+- `--people PATH` (padrão: `people-names.json`)
+- `--format png|svg|pdf|all`
+- Saída padrão: `out/timeline-YYYY-MM.png` (ou `.svg`/`.pdf`)
+
+Itens que começam ou terminam fora do mês aparecem com até 7 dias de
+extensão no eixo e um aviso no subtítulo.
 
 ## Documentação
 

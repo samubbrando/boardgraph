@@ -296,3 +296,22 @@ Medido em 2026-11-08: 86 itens, 72 nós, 72/72 nós com assignee, 13 pessoas no
 arquivo, 0 logins desconhecidos. `parents --show-assignees --assignee-format
 both --format pdf` gerou um PDF de 2080×3185 pts; o nome aparece em todos os
 nós e o colapso de `backend#9` mostra os responsáveis do grupo.
+
+## Fase 9 — cronograma/Gantt com nomes
+
+Implementada em 2026-11-08.
+
+- [x] `timeline.py` lê os itens do board e gera um Gantt com `matplotlib`.
+- [x] `--month`/`--from`/`--to`, `--team`, `--status`, `--group-by`,
+      `--name-style`, `--show-login` e `--split-assignees`.
+- [x] Nomes completos/curtos; fallback `@login`; uma linha por pessoa quando
+      solicitado.
+- [x] Eixo com até 7 dias do mês seguinte para não cortar barras que cruzam
+      o período; aviso no subtítulo.
+- [x] 86 testes offline (11 em `test_timeline.py`).
+- [x] Imagens geradas em `out/timeline-2026-10.{png,svg,pdf}` e
+      `out/timeline-2026-11.{png,svg,pdf}`.
+
+Medido em 2026-11-08: outubro/2026 com 44 itens (42 Done, 2 In progress,
+1 atrasado); novembro/2026 com 60 itens (18 Done, 7 In progress, 35 Todo,
+1 atrasado).

@@ -13,10 +13,11 @@ from .client import GraphQLError
 from .fetch import FetchConfig, fetch_board, save, summarize
 from .graph import build_graph, render_terminal as render_graph
 from .model import build_board, filter_detail, finalize, render_terminal
-from .people import DEFAULT_PEOPLE_FILE, PeopleError, load as load_people
+from .people import DEFAULT_PEOPLE_FILE, PeopleError, PeopleIndex, load as load_people
 from .render import render_mermaid
 from .team import filter_team
 from .dot import render_dot
+from .timeline import TimelineError, parse_range, render_timeline
 from .probe import build_report, write
 from .probe import render_terminal as render_probe
 
@@ -83,6 +84,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render.add_argument("--print", action="store_true", help="imprime o Mermaid no terminal")
 
+    timeline = sub.add_parser("timeline", help="gera cronograma/Gantt com nomes (offline)")
+    timeline.add_argument("--out", type=Path, default=Path("out"), help="diretório de saída")
+    timeline.add_argument("--input", type=Path, help="payload alternativo (padrão: out/raw/latest.json)")
+    timeline.add_argument("--month", metavar="YYYY-MM", help="recorta um mês")
+    timeline.add_argument("--from", dest="date_from", metavar="YYYY-MM-DD", help="início do período")
+    timeline.add_argument("--to", dest="date_to", metavar="YYYY-MM-DD", help="fim do período")
+    timeline.add_argument("--team", action="append", help="filtra time (repetível)")
+    timeline.add_argument(
+        "--status", choices=["all", "open", "done"], default="all",
+        help="filtra por status (padrão: all)",
+    )
+    timeline.add_argument(
+        "--group-by", choices=["team", "assignee", "milestone"], default="team",
+        help="agrupa as linhas (padrão: team)",
+    )
+    timeline.add_argument(
+        "--name-style", choices=["full", "short"], default="full",
+        help="nome completo ou curto no rótulo (padrão: full)",
+    )
+    timeline.add_argument("--show-login", action="store_true", help="inclui (@login) junto ao nome")
+    timeline.add_argument("--split-assignees", action="store_true", help="uma linha por responsável")
+    timeline.add_argument(
+        "--people", type=Path, default=DEFAULT_PEOPLE_FILE,
+        help="JSON de nomes (padrão: people-names.json)",
+    )
+    timeline.add_argument(
+        "--format", choices=["png", "svg", "pdf", "all"], default="png",
+        help="formato da imagem (padrão: png)",
+    )
+    timeline.add_argument("--title", help="título da imagem")
+    timeline.add_argument("--output", type=Path, help="arquivo de saída")
+
     return parser
 
 
@@ -118,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_model(args)
         if args.command == "render":
             return _cmd_render(args)
+        if args.command == "timeline":
+            return _cmd_timeline(args)
         raise SystemExit(f"comando desconhecido: {args.command}")
     except AuthError as exc:
         print(f"erro de autenticação: {exc}", file=sys.stderr)
@@ -303,6 +338,59 @@ def _cmd_model(args: argparse.Namespace) -> int:
     else:
         print(render_terminal(board))
         print(f"\n  {path}")
+    return 0
+
+
+def _cmd_timeline(args: argparse.Namespace) -> int:
+    source = args.input or (args.out / "raw" / "latest.json")
+    if not source.exists():
+        print(
+            f"erro: payload não encontrado: {source}\n"
+            "rode `python -m boardgraph fetch --owner ... --project ...` antes",
+            file=sys.stderr,
+        )
+        return 1
+
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    board = finalize(filter_detail(build_board(payload), "all"))
+
+    people = None
+    try:
+        people = load_people(args.people)
+    except PeopleError as exc:
+        print(f"aviso: {exc}\n  seguindo com logins", file=sys.stderr)
+        people = PeopleIndex()
+
+    try:
+        date_from, date_to = parse_range(args.month, args.date_from, args.date_to)
+        result = render_timeline(
+            board,
+            date_from=date_from,
+            date_to=date_to,
+            teams=args.team,
+            status=args.status,
+            group_by=args.group_by,
+            split_assignees=args.split_assignees,
+            people=people,
+            name_style=args.name_style,
+            show_login=args.show_login,
+            output=args.output,
+            fmt=args.format,
+            title=args.title,
+            out_dir=args.out,
+        )
+    except TimelineError as exc:
+        print(f"erro: {exc}", file=sys.stderr)
+        return 1
+
+    data = result["data"]
+    print(
+        f"{result['label']} · {data.items} itens · Done {data.done} · "
+        f"In progress {data.doing} · Todo {data.todo} · "
+        f"Atrasados {data.overdue} · Sem data {data.undated}"
+    )
+    for path in result["paths"]:
+        print(f"  {path}")
     return 0
 
 

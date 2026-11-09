@@ -213,6 +213,7 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `boardgraph/fields.py` | **Toda** leitura de `fieldValues` passa aqui. `split_value` entende `issueFieldValue` e o formato clássico; `field_map` monta `{nome: valor}`; `item_key` gera chave estável. É a camada que impede `null` silencioso nas datas. | item cru → mapa de campos / chave |
 | `boardgraph/fetch.py` | `fetch_board` executa a query, pagina até `max_pages`, tenta de novo sem `blockedBy/parent` se o GraphQL recusar dependências (`degraded`), grava `latest.json`/`latest.meta.json` e resume o meta. | `FetchConfig` → `FetchResult` + arquivos |
 | `boardgraph/people.py` | Carrega `people-names.json` (local, ignorado), resolve login/alias e formata `name`, `login` ou `both`. O example versionado é `people-names.example.json`. | JSON → `PeopleIndex` |
+| `boardgraph/timeline.py` | Gera um Gantt por mês/intervalo, com nomes completos/curtos, barras por status, agrupamento por time, responsável ou milestone e eixo com até 7 dias de extensão. Usa `matplotlib` opcional. | `Board` + pessoas → PNG/SVG/PDF |
 | `boardgraph/probe.py` | Relatório de cobertura. Linhas obrigatórias (`Status`, `Start date`, `Target date`, `Milestone`) geram aviso; informativas não. Detecta milestone por `(repo, number)`, `dueOn` ausente e divergência de `Status` pai/filha. | payload → relatório; grava `report.md/json` |
 | `boardgraph/model.py` | Núcleo puro. `build_board` normaliza itens; `filter_detail` aplica `parents`/`children`/`all`; `finalize` calcula `milestones`, `counts` e `warnings` uma vez. Também formata a tabela de terminal. | payload → `Board`; `Board` + `detail` → `Board` |
 | `boardgraph/graph.py` | Arestas `blocked_by` (dependência) e `parent` (hierarquia, só em `children`/`all`), fantasmas para bloqueantes fora do recorte (com time lido de `items`), Tarjan para ciclos, lista de isolados. | `Board` → grafo |
@@ -221,7 +222,7 @@ inclusivo (`end - start + 1`). O board tem 13 milestones; só 4 têm `dueOn`.
 | `boardgraph/dot.py` | Emissor Graphviz. Temas `light`/`dark`, clusters por `group_by`, cores por `Status`, `URL=` para abrir a issue. | `Board`/`graph` + `group_by` → DOT |
 | `boardgraph/cli.py` | `argparse`, normalização de `--filter -status:Done`, dispatch dos subcomandos, escrita de artefatos e chamada de `dot -Tsvg|pdf`. Códigos de saída: 0 ok, 1 erro genérico/`--strict`, 2 auth, 3 GraphQL. | argv → arquivos + stdout |
 | `boardgraph/__main__.py` | Permite `python -m boardgraph`. | — |
-| `tests/` | 75 testes unitários offline. | — |
+| `tests/` | 86 testes unitários offline. | — |
 
 ## 5. Decisões e evidência
 
@@ -330,6 +331,15 @@ versionado é `people-names.example.json`. A resolução acontece só no render:
 `login → nome` na hora de rotular. Login desconhecido vira `@login` com aviso;
 `--strict-people` transforma isso em erro.
 
+### 5.11 Cronograma é uma visão separada do PERT
+
+`timeline.py` lê os mesmos itens do board, mas desenha um Gantt por mês ou
+intervalo. Ele não altera o grafo de dependências: o PERT responde “o que
+bloqueia o quê”; o cronograma responde “quando cada item acontece e quem é o
+responsável”. O eixo estende até 7 dias do mês seguinte para não cortar barras
+que começam no mês e terminam depois. Nomes completos vêm de
+`people-names.json`; sem o arquivo, o fallback é `@login`.
+
 ## 6. Armadilhas conhecidas
 
 ### Issue field versus campo clássico
@@ -430,6 +440,9 @@ python -m boardgraph render --group-by team
 # 7. Nomes dos responsáveis (people-names.json local, ignorado)
 cp people-names.example.json people-names.json
 python -m boardgraph render --show-assignees --assignee-format both --format pdf
+
+# 8. Cronograma/Gantt com nomes
+python -m boardgraph timeline --month 2026-10 --name-style full --format all
 ```
 
 Opções úteis:
@@ -472,18 +485,19 @@ isolados. Zero milestones misturam times.
 
 Em 2026-11-08, depois da criação das issues de gerência, o snapshot tinha 86
 itens, 72 nós, 14 absorvidos, 37 arestas de dependência, 1 fantasma e 46
-isolados. O board cresceu; os números acima são o retrato daquela data, não
-um contrato.
+isolados. Depois do planejamento por tela do front, o board chegou a 104
+itens; o `fetch` da Fase 9 usou 104. O board cresceu; os números acima são o
+retrato daquela data, não um contrato.
 
 ## 8. Estado da suíte de testes
 
-75 testes, todos offline, executados com:
+86 testes, todos offline, executados com:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Resultado em 2026-11-08: `Ran 75 tests ... OK`.
+Resultado em 2026-11-08: `Ran 86 tests ... OK`.
 
 | Arquivo | Testes | Cobre |
 |---|---:|---|
@@ -494,6 +508,7 @@ Resultado em 2026-11-08: `Ran 75 tests ... OK`.
 | `tests/test_team.py` | 13 | Herança de time pela cadeia de pai; sem time permanece `None`; seleção; externo mantém time de origem; fora do board marcado; blocker interno não é externo; múltiplos times; `(sem time)` nunca descartado; time inexistente avisa; time sem dependência avisa; arestas só tocam nós mantidos. |
 | `tests/test_people.py` | 13 | Example válido; resolução case-insensitive; alias; bot/inativo; modos `name`/`login`/`both`; limite; desconhecido/ghost; validação de alias, login duplicado, nome ausente, arquivo ausente e manager desconhecido. |
 | `tests/test_cli.py` | 2 | Defaults de `--people`, `--show-assignees`, `--assignee-format` e `--strict-people`. |
+| `tests/test_timeline.py` | 11 | Intervalo por mês/from-to; filtros de data/time/status; contagem de sem data; grupos por time e por responsável; nomes completos/curtos; múltiplos responsáveis; fallback sem nome; render PNG. |
 
 Lacunas de teste atuais: não há teste de temas do `dot.py` (light/dark,
 escape, `URL=`), nem de `fetch_board` com cliente falso/paginação/degraded,
@@ -520,6 +535,8 @@ divergiam:
 7. **Fase 6 duplicada** foi removida do plano.
 8. **Fase 8 (nomes) concluída.** `assignees` entra no modelo, o colapso une
    os responsáveis e `people-names.json` resolve os nomes no render.
+9. **Fase 9 (cronograma) concluída.** `timeline` gera Gantt por mês/intervalo
+   com nomes, status e agrupamento por time, responsável ou milestone.
 
 ## 10. Pontos em aberto
 
@@ -601,3 +618,8 @@ divergiam:
     `--assignee-format name` e com recortes `--team`; se continuar denso,
     decidir entre fonte menor, quebra de linha ou mostrar o responsável só
     em um modo “detalhado”.
+
+12. **Cronograma mensal com muitos itens fica alto.**
+    `timeline` gera uma linha por tarefa; um mês com 60 itens vira uma imagem
+    alta. Para resolver: usar `--team`, `--group-by assignee` ou um modo
+    compacto por time. O eixo já limita a extensão a 7 dias do mês seguinte.
